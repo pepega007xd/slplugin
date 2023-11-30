@@ -196,7 +196,6 @@ let print_stmt (result : stmt * SSL.t list) =
   |> print_string
 
 let run () =
-  Self.result "The plugin actually started";
   let main, _ = Globals.entry_point () in
   let first_stmt = Kernel_function.find_first_stmt main in
   Hashtbl.add !results first_stmt [ SSL.mk_emp () ];
