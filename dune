@@ -1,0 +1,25 @@
+(env
+    (dev
+        (flags (:standard
+                          -w -32   ; Unused value declaration
+                          -w -26   ; Unused var
+                          -w -27   ; Unused var strict
+                          -g
+                )
+        )
+    )
+)
+
+(library
+  (name slplugin)
+  (public_name frama-c-slplugin.core)
+  (flags -open Frama_c_kernel :standard)
+  (libraries frama-c.kernel astral)
+)
+
+(plugin
+  (optional)
+  (name slplugin)
+  (libraries frama-c-slplugin.core)
+  (site (frama-c plugins))
+)
