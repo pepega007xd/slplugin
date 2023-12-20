@@ -3,14 +3,36 @@ open Dataflow2
 open Astral
 open Cil_types
 
+type t2 = SSL.t list
+
 let results = ref (Hashtbl.create 1024)
 let solver = Solver.init ()
 
 module Self = Plugin.Register (struct
-  let name = "Shape analysis based using separation logic"
+  let name = "Shape analysis"
   let shortname = "SLplugin"
   let help = ""
 end)
+
+let print_stmt (stmt : Cil_types.stmt) =
+  (* print in yellow color *)
+  print_string "\x1b[33m";
+
+  let stmt = Format.asprintf "%a" Cil_datatype.Stmt.pretty stmt in
+  (String.split_on_char '\n' stmt |> function
+   | [] -> print_endline "<empty stmt>"
+   | a :: [] -> print_endline a
+   | [ a; b ] -> print_endline (a ^ "\n" ^ b)
+   | a :: b :: _ -> print_endline (a ^ "\n" ^ b ^ "\n" ^ "..."));
+
+  print_string "\x1b[0m"
+
+let print_state (state : t2) =
+  let space = "    " in
+  print_string space;
+  List.map (fun f -> SSL.show @@ Simplifier.simplify f) state
+  |> String.concat ("\n" ^ space)
+  |> print_endline
 
 (* checks whether formula has any model *)
 let check_sat (formula : SSL.t) : bool = Solver.check_sat solver formula
@@ -26,25 +48,27 @@ let mk_fresh_var () : SSL.t =
 let mk_fresh_var_plain () : SSL.Variable.t =
   match mk_fresh_var () with Var var -> var | _ -> failwith ""
 
+let is_alloc fn_name =
+  (* frama-c has support for allocation functions *)
+  fn_name = "malloc" || fn_name = "calloc" || fn_name = "realloc"
+
 (* if <var> is ptr type, creates formula (<var> -> x') where x' is fresh primed variable *)
 (* otherwise, returns prev_state *)
-let mk_init (lhs : varinfo) (rhs : local_init) (prev_state : SSL.t) : SSL.t list
-    =
-  let is_alloc fn_name =
-    (* frama-c has support for allocation functions *)
-    fn_name = "malloc" || fn_name = "calloc" || fn_name = "realloc"
-  in
-  let var = mk_var lhs in
-  let atom_list =
+let mk_init (lhs : varinfo) (rhs : local_init) (prev_state : SSL.t) : t2 =
+  let lhs_var = mk_var lhs in
+  let new_atoms =
     match rhs with
     (* assuming all locations named by value are NULL *)
-    | AssignInit (SingleInit rhs) ->
-        [ SSL.mk_eq var @@ SSL.mk_nil () ] (* TODO handle all possible expr *)
+    (* TODO handle all possible expr *)
+    | AssignInit (SingleInit exp) -> [ SSL.mk_eq lhs_var @@ SSL.mk_nil () ]
     (* initialization by function call *)
     | ConsInit (fn, _, _) ->
         if is_alloc fn.vname then
-          (* malloc can return valid pointer or nil *)
-          [ SSL.mk_pto var @@ mk_fresh_var (); SSL.mk_eq var @@ SSL.mk_nil () ]
+          [
+            (* malloc can return valid pointer or nil *)
+            SSL.mk_pto lhs_var @@ mk_fresh_var ();
+            SSL.mk_eq lhs_var @@ SSL.mk_nil ();
+          ]
         else
           failwith
             "variable initialization with arbitrary function is not implemented"
@@ -53,8 +77,73 @@ let mk_init (lhs : varinfo) (rhs : local_init) (prev_state : SSL.t) : SSL.t list
   match lhs.vtype with
   (* if lhs is a pointer, add appropriate atom to init *)
   | TPtr (_, _) ->
-      List.map (fun pto -> SSL.mk_star @@ [ prev_state; pto ]) atom_list
+      List.map (fun pto -> SSL.mk_star @@ [ prev_state; pto ]) new_atoms
   | _ -> [ prev_state ]
+
+let list_contains (list : 'a List.t) (elem : 'a) : bool =
+  match List.find_opt (fun x -> x = elem) list with
+  | Some _ -> true
+  | None -> false
+
+let find_new_equiv_vars (atoms : t2) (found_vars : SSL.Variable.t list) :
+    SSL.Variable.t list =
+  List.filter_map
+    (fun atom ->
+      match atom with
+      | SSL.Eq [ SSL.Var lhs; SSL.Var rhs ] ->
+          if
+            (* lhs is new to equivalence class *)
+            list_contains found_vars rhs && (not @@ list_contains found_vars lhs)
+          then Some lhs
+          else if
+            (* rhs is new to equivalence class *)
+            list_contains found_vars lhs && (not @@ list_contains found_vars rhs)
+          then Some rhs
+          else None
+      | SSL.Eq _ -> failwith "equality with less/more than two operators"
+      | _ -> None)
+    atoms
+
+(* finds equivalence class of variable given as only member of
+   list `found_vars` on list on atoms `atoms` *)
+let rec mk_equiv_class_rec (atoms : t2) (found_vars : SSL.Variable.t list) :
+    SSL.Variable.t list =
+  match find_new_equiv_vars atoms found_vars with
+  | [] -> found_vars
+  | new_vars -> mk_equiv_class_rec atoms (found_vars @ new_vars)
+
+(* accepts variable and formula, finds pto from equivalence class of variable,
+   returns both sides of pto atom *)
+let find_pto (formula : SSL.t) (var : SSL.Variable.t) :
+    (SSL.Variable.t * SSL.Variable.t) option =
+  (* flattens formula to single sep: (star a b c d ...) *)
+  let formula = Simplifier.simplify formula in
+  match formula with
+  | SSL.Star atoms -> (
+      let equiv_class = mk_equiv_class_rec atoms [ var ] in
+      let target_var_struct =
+        List.find_map
+          (fun atom ->
+            match atom with
+            | SSL.PointsTo (src, dst) ->
+                if list_contains equiv_class var then Some (src, dst) else None
+            | _ -> None)
+          atoms
+      in
+      match target_var_struct with
+      (* TODO differentiate between list segment and simple pto, or is this simple pto? *)
+      | Some (SSL.Var src, LS_t dst) -> Some (src, dst)
+      | Some _ -> failwith "DLS/NLS found in get_pto"
+      | None ->
+          failwith
+            "did not find any points-to target in `get_pto` (maybe it's ls?)")
+  | _ -> failwith "unreachable"
+
+let is_allocated (formula : SSL.t) (var : SSL.Variable.t) : bool =
+  match find_pto formula var with Some _ -> true | None -> false
+
+let substitute_var (var : varinfo) (formula : SSL.t) : SSL.t =
+  SSL.substitute formula ~var:(mk_var_plain var) ~by:(mk_fresh_var_plain ())
 
 let mk_assign (lhs : varinfo) (rhs : exp) (prev_state : SSL.t) : SSL.t =
   match (lhs.vtype, rhs.enode) with
@@ -67,18 +156,45 @@ let mk_assign (lhs : varinfo) (rhs : exp) (prev_state : SSL.t) : SSL.t =
             ~by:(mk_fresh_var_plain ());
         ]
   (* a = *b *)
-  | TPtr (_, _), AddrOf (Var rhs, NoOffset) -> failwith "unimplemented"
+  | TPtr (_, _), AddrOf (Var rhs, NoOffset) ->
+      let src, dst = Option.get @@ find_pto prev_state (mk_var_plain rhs) in
+      SSL.mk_star
+        [
+          SSL.mk_eq (mk_var lhs) (SSL.Var dst);
+          SSL.substitute prev_state ~var:(mk_var_plain lhs)
+            ~by:(mk_fresh_var_plain ());
+        ]
   | _ -> prev_state
 
 let mk_ptr_write (lhs : varinfo) (rhs : exp) (prev_state : SSL.t) : SSL.t =
   match (lhs.vtype, rhs.enode) with
   (* *a = b *)
-  | TPtr (_, _), Lval (Var rhs, NoOffset) -> failwith "unimplemented"
+  | TPtr (_, _), Lval (Var rhs, NoOffset) -> (
+      let src, dst = Option.get @@ find_pto prev_state (mk_var_plain lhs) in
+      match prev_state with
+      | SSL.Star atoms ->
+          List.map
+            (fun atom ->
+              if atom = SSL.mk_pto (SSL.Var src) (SSL.Var dst) then
+                SSL.mk_pto (SSL.Var src) (mk_var rhs)
+              else atom)
+            atoms
+          |> SSL.mk_star
+      | _ -> failwith "unreachable")
   | _ -> prev_state
 
+let mk_call (lhs : varinfo) (func : varinfo) (formula : SSL.t) : t2 =
+  let formula = substitute_var lhs formula in
+  let lhs = mk_var lhs in
+  if is_alloc func.vname then
+    [
+      SSL.mk_star [ SSL.mk_pto lhs @@ mk_fresh_var (); formula ];
+      SSL.mk_star [ SSL.mk_eq lhs @@ SSL.mk_nil (); formula ];
+    ]
+  else failwith "mk_call: function calls are not implemented"
+
 (* leaves in only those formulas, which satisfy `sat(phi * (lhs == rhs))` *)
-let filter_eq (lhs : varinfo) (rhs : varinfo) (states : SSL.t list) : SSL.t list
-    =
+let filter_eq (lhs : varinfo) (rhs : varinfo) (states : t2) : t2 =
   List.filter
     (fun state_piece ->
       check_sat
@@ -86,8 +202,7 @@ let filter_eq (lhs : varinfo) (rhs : varinfo) (states : SSL.t list) : SSL.t list
     states
 
 (* filters out only those formulas, which satisfy `sat(phi * (lhs != rhs))` *)
-let filter_ne (lhs : varinfo) (rhs : varinfo) (states : SSL.t list) : SSL.t list
-    =
+let filter_ne (lhs : varinfo) (rhs : varinfo) (states : t2) : t2 =
   List.filter
     (fun state_piece ->
       check_sat
@@ -103,47 +218,62 @@ module Transfer = struct
   let copy state = state
   let pretty fmt state = List.iter (SSL.pp fmt) state
 
-  let computeFirstPredecessor stmt prev_state =
+  let computeFirstPredecessor (stmt : stmt) (prev_state : t) : t =
     match stmt.skind with
     | Instr instr -> (
         match instr with
-        | Set (lval, rhs, _) -> (
-            match lval with
+        | Local_init (lhs, rhs, _) ->
+            (* int *a = malloc(...) *)
+            Printf.printf "local_init lhs: %s\n" lhs.vname;
+            List.flatten @@ List.map (mk_init lhs rhs) prev_state
+        | Set (lhs, rhs, _) -> (
+            match lhs with
             (* a = b; *)
             (* a = *b; *)
             | Var lhs, NoOffset -> List.map (mk_assign lhs rhs) prev_state
             (* *a = b; *)
-            | Mem exp, NoOffset -> (
-                match exp.enode with
-                (* *a = b; *)
-                | AddrOf (Var lhs, NoOffset) ->
-                    List.map (mk_ptr_write lhs rhs) prev_state
-                | _ -> failwith "unimplemented")
-            | _ -> failwith "unimplemented")
-        (* int *a = malloc(...) *)
-        | Local_init (lhs, rhs, _) ->
-            List.flatten @@ List.map (mk_init lhs rhs) prev_state
-        | _ -> prev_state)
+            | Mem { eid; enode = Lval (Var lhs, NoOffset); eloc }, NoOffset ->
+                List.map (mk_ptr_write lhs rhs) prev_state
+            | _ -> failwith "computeFirstPredecessor: unimplemented Set")
+        | Call (lhs_opt, func, _, _) -> (
+            match (lhs_opt, func.enode) with
+            (* a = func() *)
+            | Some (Var lhs, NoOffset), Lval (Var func, NoOffset) ->
+                List.flatten @@ List.map (mk_call lhs func) prev_state
+            | _ -> prev_state)
+        | _ -> failwith "unimplemented")
     | _ -> prev_state
 
   (* Stmt is reached multiple times ~> join operator *)
   (* iterate over all formulas of new_state `phi`, and each one that doesn't satisfy
      (phi -> old) has to be added to `old`. If old is not changed, None is returned. *)
-  let combinePredecessors _ ~old:old_state new_state =
+  let combinePredecessors (stmt : stmt) ~old:(old_state : t) (new_state : t) :
+      t option =
+    print_endline "\ncombinePredecessors\nold_state:";
+    print_state old_state;
+    print_endline "new_state:";
+    print_state new_state;
+    print_stmt stmt;
     let new_components =
       List.filter
         (fun new_piece ->
           not @@ Solver.check_entl solver new_piece @@ SSL.mk_or old_state)
         new_state
     in
-    if List.length new_components == 0 then None
-    else Some (new_components @ old_state)
+    if List.length new_components == 0 then (
+      Printf.printf "Result: state did not change\n";
+      None)
+    else
+      let joined_state = new_components @ old_state in
+      Printf.printf "Result: state changed\njoined_state:\n";
+      print_state joined_state;
+      Some joined_state
 
   (* ??? *)
   let doInstr _ _ s = s
 
   (* we need to filter the formulas of `state` for each branch to only those, which  *)
-  let doGuard _ exp state =
+  let doGuard _ (exp : exp) (state : t) : t guardaction * t guardaction =
     let th, el =
       match exp.enode with
       | BinOp (Eq, lhs, rhs, _) -> (
@@ -163,8 +293,8 @@ module Transfer = struct
     in
     (GUse th, GUse el)
 
-  (* generate new state that will be used in combinePredecessors *)
-  let doStmt stmt prev_state = SUse (computeFirstPredecessor stmt prev_state)
+  (* probably not useful *)
+  let doStmt _ _ = SDefault
 
   (* probably not useful *)
   let doEdge _ _ s = s
@@ -184,16 +314,11 @@ end
 
 module Analysis = Forwards (Transfer)
 
-let print_stmt (result : stmt * SSL.t list) =
-  let stmt, formulas = result in
+let print_result (result : stmt * t2) =
+  let stmt, state = result in
   print_newline ();
-  (* statements are printed yellow *)
-  Self.printf "\x1b[33m%a\x1b[0m" Cil_datatype.Stmt.pretty stmt;
-  let space = "    " in
-  print_string space;
-  List.map (fun f -> SSL.show @@ Simplifier.simplify f) formulas
-  |> String.concat ("\n" ^ space)
-  |> print_string
+  print_stmt stmt;
+  print_state state
 
 let run () =
   let main, _ = Globals.entry_point () in
@@ -205,6 +330,6 @@ let run () =
          let a, _ = a in
          let b, _ = b in
          a.sid - b.sid)
-  |> List.iter print_stmt |> ignore
+  |> List.iter print_result |> ignore
 
 let () = Db.Main.extend run
