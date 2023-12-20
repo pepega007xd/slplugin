@@ -150,20 +150,12 @@ let mk_assign (lhs : varinfo) (rhs : exp) (prev_state : SSL.t) : SSL.t =
   (* a = b *)
   | TPtr (_, _), Lval (Var rhs, NoOffset) ->
       SSL.mk_star
-        [
-          SSL.mk_eq (mk_var lhs) (mk_var rhs);
-          SSL.substitute prev_state ~var:(mk_var_plain lhs)
-            ~by:(mk_fresh_var_plain ());
-        ]
+        [ SSL.mk_eq (mk_var lhs) (mk_var rhs); substitute_var lhs prev_state ]
   (* a = *b *)
   | TPtr (_, _), AddrOf (Var rhs, NoOffset) ->
       let src, dst = Option.get @@ find_pto prev_state (mk_var_plain rhs) in
       SSL.mk_star
-        [
-          SSL.mk_eq (mk_var lhs) (SSL.Var dst);
-          SSL.substitute prev_state ~var:(mk_var_plain lhs)
-            ~by:(mk_fresh_var_plain ());
-        ]
+        [ SSL.mk_eq (mk_var lhs) (SSL.Var dst); substitute_var lhs prev_state ]
   | _ -> prev_state
 
 let mk_ptr_write (lhs : varinfo) (rhs : exp) (prev_state : SSL.t) : SSL.t =
@@ -209,6 +201,19 @@ let filter_ne (lhs : varinfo) (rhs : varinfo) (states : t2) : t2 =
       @@ SSL.mk_star [ state_piece; SSL.mk_distinct (mk_var lhs) (mk_var rhs) ])
     states
 
+let is_prime_var (var : SSL.Variable.t) : bool =
+  let var_name, _ = var in
+  if String.contains var_name '!' then true else false
+
+(* removes all atoms of the form (x' -> y), where x' doesn't appear anywhere else *)
+let remove_junk (formula : SSL.t) : SSL.t =
+  let atoms =
+    match formula with
+    | Star atoms -> atoms
+    | _ -> failwith "remove_junk: formula is not Star of atoms"
+  in
+  failwith "todo"
+
 module Transfer = struct
   let name = "test"
   let debug = true
@@ -218,31 +223,33 @@ module Transfer = struct
   let copy state = state
   let pretty fmt state = List.iter (SSL.pp fmt) state
 
-  let computeFirstPredecessor (stmt : stmt) (prev_state : t) : t =
-    match stmt.skind with
-    | Instr instr -> (
-        match instr with
-        | Local_init (lhs, rhs, _) ->
-            (* int *a = malloc(...) *)
-            Printf.printf "local_init lhs: %s\n" lhs.vname;
-            List.flatten @@ List.map (mk_init lhs rhs) prev_state
-        | Set (lhs, rhs, _) -> (
-            match lhs with
-            (* a = b; *)
-            (* a = *b; *)
-            | Var lhs, NoOffset -> List.map (mk_assign lhs rhs) prev_state
-            (* *a = b; *)
-            | Mem { eid; enode = Lval (Var lhs, NoOffset); eloc }, NoOffset ->
-                List.map (mk_ptr_write lhs rhs) prev_state
-            | _ -> failwith "computeFirstPredecessor: unimplemented Set")
-        | Call (lhs_opt, func, _, _) -> (
-            match (lhs_opt, func.enode) with
-            (* a = func() *)
-            | Some (Var lhs, NoOffset), Lval (Var func, NoOffset) ->
-                List.flatten @@ List.map (mk_call lhs func) prev_state
-            | _ -> prev_state)
-        | _ -> failwith "unimplemented")
-    | _ -> prev_state
+  (* *this* is the transfer function for instructions, we take the instr and previous
+     state, and create new state *)
+  let doInstr (stmt : stmt) (instr : instr) prev_state =
+    match instr with
+    | Local_init (lhs, rhs, _) ->
+        (* int *a = malloc(...) *)
+        Printf.printf "local_init lhs: %s\n" lhs.vname;
+        List.flatten @@ List.map (mk_init lhs rhs) prev_state
+    | Set (lhs, rhs, _) -> (
+        match lhs with
+        (* a = b; *)
+        (* a = *b; *)
+        | Var lhs, NoOffset -> List.map (mk_assign lhs rhs) prev_state
+        (* *a = b; *)
+        | Mem { eid; enode = Lval (Var lhs, NoOffset); eloc }, NoOffset ->
+            List.map (mk_ptr_write lhs rhs) prev_state
+        | _ -> failwith "computeFirstPredecessor: unimplemented Set")
+    | Call (lhs_opt, func, _, _) -> (
+        match (lhs_opt, func.enode) with
+        (* a = func() *)
+        | Some (Var lhs, NoOffset), Lval (Var func, NoOffset) ->
+            List.flatten @@ List.map (mk_call lhs func) prev_state
+        | _ -> prev_state)
+    | _ -> failwith "unimplemented"
+
+  (* `state` comes from doInstr, so it is actually the new state *)
+  let computeFirstPredecessor _ state = state
 
   (* Stmt is reached multiple times ~> join operator *)
   (* iterate over all formulas of new_state `phi`, and each one that doesn't satisfy
@@ -269,9 +276,6 @@ module Transfer = struct
       print_state joined_state;
       Some joined_state
 
-  (* ??? *)
-  let doInstr _ _ s = s
-
   (* we need to filter the formulas of `state` for each branch to only those, which  *)
   let doGuard _ (exp : exp) (state : t) : t guardaction * t guardaction =
     let th, el =
@@ -296,8 +300,10 @@ module Transfer = struct
   (* probably not useful *)
   let doStmt _ _ = SDefault
 
-  (* probably not useful *)
-  let doEdge _ _ s = s
+  (* simplify formulas and filter out unsatisfiable ones *)
+  let doEdge _ _ state =
+    let simplified = List.map Simplifier.simplify state in
+    List.filter check_sat simplified
 
   module StmtStartData = struct
     type data = t
@@ -323,8 +329,17 @@ let print_result (result : stmt * t2) =
 let run () =
   let main, _ = Globals.entry_point () in
   let first_stmt = Kernel_function.find_first_stmt main in
+
+  (* print control from automaton to `cfa.dot` *)
+  let automaton = Interpreted_automata.get_automaton main in
+  let file = Out_channel.open_text "cfa.dot" in
+  Interpreted_automata.output_to_dot ~labeling:`Stmt
+    ~wto:(Interpreted_automata.get_wto main)
+    file automaton;
+
   Hashtbl.add !results first_stmt [ SSL.mk_emp () ];
   Analysis.compute [ first_stmt ];
+
   Hashtbl.to_seq !results |> List.of_seq
   |> List.sort (fun a b ->
          let a, _ = a in

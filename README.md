@@ -1,18 +1,38 @@
-## Frama-C plugin for shape analysis using separation logic
+# Shape analysis using separation logic
 
-build:
+## Limitations
+
+The following C language features are not yet implemented
+
+- function calls, except allocation functions
+- assignments with multiple dereferences (eg. `**a = b;`)
+- multiple dereferences in expressions
+- member access (eg. `a.b = c;`, or `a->b = c;`)
+- global variables
+- conditions more complex than in/equality of two variables (other conditions
+  are analyzed as nondeterministic)
+
+Also, input code must follow these conditions:
+
+- declarations must be at the start of a function
+
+## Usage
+
+Build:
 
 ```bash
 dune build
 ```
 
-run:
+Run:
 
 ```bash
 dune exec -- frama-c simple.c
 ```
 
-example output:
+## Example output
+
+Output for program `simple.c`
 
 ```
 [kernel] Parsing simple.c (with preprocessing)
