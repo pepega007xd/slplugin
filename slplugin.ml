@@ -41,16 +41,23 @@ let mk_var (var : varinfo) : SSL.t = SSL.mk_var var.vname Sort.loc_ls
 let mk_var_plain (var : varinfo) : SSL.Variable.t =
   match mk_var var with Var var -> var | _ -> failwith ""
 
+(* TODO add distinction of how the variable will be used -> substitution/allocation/...*)
 let mk_fresh_var () : SSL.t =
   let fresh_var = SSL.mk_fresh_var "fresh" Sort.loc_ls in
   fresh_var
 
+(* TODO add distinction of how the variable will be used -> substitution/allocation/...*)
 let mk_fresh_var_plain () : SSL.Variable.t =
   match mk_fresh_var () with Var var -> var | _ -> failwith ""
 
 let is_alloc fn_name =
   (* frama-c has support for allocation functions *)
   fn_name = "malloc" || fn_name = "calloc" || fn_name = "realloc"
+
+let to_atoms (formula : SSL.t) : SSL.t list =
+  match formula with
+  | SSL.Star atoms -> atoms
+  | _ -> failwith "to_atoms: formula is not SSL.Star"
 
 (* if <var> is ptr type, creates formula (<var> -> x') where x' is fresh primed variable *)
 (* otherwise, returns prev_state *)
@@ -118,26 +125,23 @@ let find_pto (formula : SSL.t) (var : SSL.Variable.t) :
     (SSL.Variable.t * SSL.Variable.t) option =
   (* flattens formula to single sep: (star a b c d ...) *)
   let formula = Simplifier.simplify formula in
-  match formula with
-  | SSL.Star atoms -> (
-      let equiv_class = mk_equiv_class_rec atoms [ var ] in
-      let target_var_struct =
-        List.find_map
-          (fun atom ->
-            match atom with
-            | SSL.PointsTo (src, dst) ->
-                if list_contains equiv_class var then Some (src, dst) else None
-            | _ -> None)
-          atoms
-      in
-      match target_var_struct with
-      (* TODO differentiate between list segment and simple pto, or is this simple pto? *)
-      | Some (SSL.Var src, LS_t dst) -> Some (src, dst)
-      | Some _ -> failwith "DLS/NLS found in get_pto"
-      | None ->
-          failwith
-            "did not find any points-to target in `get_pto` (maybe it's ls?)")
-  | _ -> failwith "unreachable"
+  let atoms = to_atoms formula in
+  let equiv_class = mk_equiv_class_rec atoms [ var ] in
+  let target_var_struct =
+    List.find_map
+      (fun atom ->
+        match atom with
+        | SSL.PointsTo (src, dst) ->
+            if list_contains equiv_class var then Some (src, dst) else None
+        | _ -> None)
+      atoms
+  in
+  match target_var_struct with
+  (* TODO differentiate between list segment and simple pto, or is this simple pto? *)
+  | Some (SSL.Var src, LS_t dst) -> Some (src, dst)
+  | Some _ -> failwith "DLS/NLS found in get_pto"
+  | None ->
+      failwith "did not find any points-to target in `get_pto` (maybe it's ls?)"
 
 let is_allocated (formula : SSL.t) (var : SSL.Variable.t) : bool =
   match find_pto formula var with Some _ -> true | None -> false
@@ -205,14 +209,31 @@ let is_prime_var (var : SSL.Variable.t) : bool =
   let var_name, _ = var in
   if String.contains var_name '!' then true else false
 
+let print_warn (msg : string) =
+  print_string "\033[31;1m";
+  print_string msg;
+  print_char '\n';
+  print_string "\033[0m"
+
 (* removes all atoms of the form (x' -> y), where x' doesn't appear anywhere else *)
 let remove_junk (formula : SSL.t) : SSL.t =
-  let atoms =
-    match formula with
-    | Star atoms -> atoms
-    | _ -> failwith "remove_junk: formula is not Star of atoms"
+  let atoms = to_atoms formula in
+  let valid_atoms, junk_atoms =
+    List.partition
+      (fun atom ->
+        match atom with
+        | SSL.PointsTo (src, _) -> failwith "unimp"
+        | SSL.Not SSL.Emp -> false (* this is `junk` *)
+        | _ -> true)
+      atoms
   in
-  failwith "todo"
+  if List.length junk_atoms = 0 then formula
+  else (
+    print_warn "memory leak of the following atoms: \n";
+    List.iter (fun junk -> print_warn @@ SSL.show junk) junk_atoms;
+
+    (*add junk predicate back in*)
+    SSL.Star (SSL.Not SSL.Emp :: valid_atoms))
 
 module Transfer = struct
   let name = "test"
