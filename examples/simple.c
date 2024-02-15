@@ -1,19 +1,15 @@
 #include "stdio.h"
 #include "stdlib.h"
-
 int main() {
-    int *x = malloc(sizeof(int));
-    int *nullptr = (void *)0;
+    // int a = 5;
+    void *nullptr = NULL;
+    void *x = malloc(sizeof(void *));
 
     if (x == nullptr) {
         puts("then");
     } else {
         puts("else");
     }
-
-    puts("after");
-
     x = nullptr;
-
-    puts("end");
+    return 0;
 }

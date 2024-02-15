@@ -1,4 +1,4 @@
-(* astral definuje a=b jako s(a) = s(b) && emp *)
+(* TODO change doGuard to only add equality to formulas, not to filter them - this is done in doEdge *)
 open Dataflow2
 open Astral
 open Cil_types
@@ -56,8 +56,13 @@ let is_alloc fn_name =
 
 let to_atoms (formula : SSL.t) : SSL.t list =
   match formula with
+  | SSL.Emp -> []
+  | SSL.Eq list -> [SSL.Eq list]
+  | SSL.Distinct list -> [SSL.Distinct list]
+  | SSL.PointsTo (src, dst) -> [SSL.PointsTo (src, dst)]
+  | SSL.LS (src, dst) -> [SSL.LS(src, dst)]
   | SSL.Star atoms -> atoms
-  | _ -> failwith "to_atoms: formula is not SSL.Star"
+  | _ -> failwith "to_atoms: invalid shape of formula"
 
 (* if <var> is ptr type, creates formula (<var> -> x') where x' is fresh primed variable *)
 (* otherwise, returns prev_state *)
@@ -66,7 +71,7 @@ let mk_init (lhs : varinfo) (rhs : local_init) (prev_state : SSL.t) : t2 =
   let new_atoms =
     match rhs with
     (* assuming all locations named by value are NULL *)
-    (* TODO handle all possible expr *)
+    (* TODO handle initialization by another variable *)
     | AssignInit (SingleInit exp) -> [ SSL.mk_eq lhs_var @@ SSL.mk_nil () ]
     (* initialization by function call *)
     | ConsInit (fn, _, _) ->
@@ -91,6 +96,9 @@ let list_contains (list : 'a List.t) (elem : 'a) : bool =
   match List.find_opt (fun x -> x = elem) list with
   | Some _ -> true
   | None -> false
+
+let list_count (list: 'a List.t) (elem: 'a) : int =
+  List.length @@ List.find_all ( (=) elem) list
 
 let find_new_equiv_vars (atoms : t2) (found_vars : SSL.Variable.t list) :
     SSL.Variable.t list =
@@ -151,11 +159,11 @@ let substitute_var (var : varinfo) (formula : SSL.t) : SSL.t =
 
 let mk_assign (lhs : varinfo) (rhs : exp) (prev_state : SSL.t) : SSL.t =
   match (lhs.vtype, rhs.enode) with
-  (* a = b *)
+  (* a = b; *)
   | TPtr (_, _), Lval (Var rhs, NoOffset) ->
       SSL.mk_star
         [ SSL.mk_eq (mk_var lhs) (mk_var rhs); substitute_var lhs prev_state ]
-  (* a = *b *)
+  (* a = *b; *)
   | TPtr (_, _), AddrOf (Var rhs, NoOffset) ->
       let src, dst = Option.get @@ find_pto prev_state (mk_var_plain rhs) in
       SSL.mk_star
@@ -166,6 +174,8 @@ let mk_ptr_write (lhs : varinfo) (rhs : exp) (prev_state : SSL.t) : SSL.t =
   match (lhs.vtype, rhs.enode) with
   (* *a = b *)
   | TPtr (_, _), Lval (Var rhs, NoOffset) -> (
+      (* FIXME this is wrong, don't want to look in the whole equivalence class,
+         only on lhs itself ... (a -> x), not (y -> x) * (a = y) *)
       let src, dst = Option.get @@ find_pto prev_state (mk_var_plain lhs) in
       match prev_state with
       | SSL.Star atoms ->
@@ -205,35 +215,60 @@ let filter_ne (lhs : varinfo) (rhs : varinfo) (states : t2) : t2 =
       @@ SSL.mk_star [ state_piece; SSL.mk_distinct (mk_var lhs) (mk_var rhs) ])
     states
 
-let is_prime_var (var : SSL.Variable.t) : bool =
-  let var_name, _ = var in
-  if String.contains var_name '!' then true else false
-
 let print_warn (msg : string) =
-  print_string "\033[31;1m";
+  print_string "\x1b[31;1m";
   print_string msg;
   print_char '\n';
-  print_string "\033[0m"
+  print_string "\x1b[0m"
+
+let is_fresh_var (var : SSL.t) : bool =
+  match var with
+    | Var (var, _) -> String.contains var '!'
+    | _ -> failwith "is_fresh_var: not a variable"
+
+let extract_vars (atoms: SSL.t list) : SSL.t list = 
+  List.map (fun atom -> match atom with 
+    | SSL.PointsTo (src, LS_t dst) -> [src; SSL.Var dst]
+    | SSL.Eq (list) -> list
+    | _ -> failwith "extract_vars: formula contains atoms other than pto or eq"
+  ) atoms
+  |> List.flatten
 
 (* removes all atoms of the form (x' -> y), where x' doesn't appear anywhere else *)
 let remove_junk (formula : SSL.t) : SSL.t =
   let atoms = to_atoms formula in
+  let vars = extract_vars atoms in
   let valid_atoms, junk_atoms =
     List.partition
       (fun atom ->
         match atom with
-        | SSL.PointsTo (src, _) -> failwith "unimp"
+        | SSL.Eq [src; dst] -> 
+            (* filters out atoms (fresh = x), where fresh occurs only once in the formula *)
+            not (list_count vars src = 1 && is_fresh_var src || 
+            list_count vars dst = 1 && is_fresh_var dst)
+        | SSL.PointsTo (src, LS_t dst) -> 
+            let dst = SSL.Var dst in
+
+            (* filters out atoms (fresh -> x), where fresh occurs only once in formula *)
+            let is_alone = is_fresh_var src && list_count vars src = 1 in
+
+            (* filters out atoms (fresh1 -> fresh2) and (fresh2 -> fresh1), if this is their only
+               occurence in the formula *)
+            let is_cycle = is_fresh_var src && is_fresh_var dst &&
+              list_contains atoms (SSL.mk_pto dst src)
+            in
+            not @@ is_alone || is_cycle
         | SSL.Not SSL.Emp -> false (* this is `junk` *)
         | _ -> true)
       atoms
   in
   if List.length junk_atoms = 0 then formula
   else (
-    print_warn "memory leak of the following atoms: \n";
-    List.iter (fun junk -> print_warn @@ SSL.show junk) junk_atoms;
+    print_warn "removing junk:";
+    print_state junk_atoms;
 
     (*add junk predicate back in*)
-    SSL.Star (SSL.Not SSL.Emp :: valid_atoms))
+    SSL.Star (valid_atoms))
 
 module Transfer = struct
   let name = "test"
@@ -270,11 +305,14 @@ module Transfer = struct
     | _ -> failwith "unimplemented"
 
   (* `state` comes from doInstr, so it is actually the new state *)
-  let computeFirstPredecessor _ state = state
+  let computeFirstPredecessor _ state =
+    print_string "computeFirstPredecessor: ";
+    print_state state;
+    state
 
   (* Stmt is reached multiple times ~> join operator *)
   (* iterate over all formulas of new_state `phi`, and each one that doesn't satisfy
-     (phi -> old) has to be added to `old`. If old is not changed, None is returned. *)
+     (phi => old) has to be added to `old`. If old is not changed, None is returned. *)
   let combinePredecessors (stmt : stmt) ~old:(old_state : t) (new_state : t) :
       t option =
     print_endline "\ncombinePredecessors\nold_state:";
@@ -297,7 +335,8 @@ module Transfer = struct
       print_state joined_state;
       Some joined_state
 
-  (* we need to filter the formulas of `state` for each branch to only those, which  *)
+  (* we need to filter the formulas of `state` for each branch to only those,
+     which are satisfiable in each of the branches *)
   let doGuard _ (exp : exp) (state : t) : t guardaction * t guardaction =
     let th, el =
       match exp.enode with
@@ -324,7 +363,9 @@ module Transfer = struct
   (* simplify formulas and filter out unsatisfiable ones *)
   let doEdge _ _ state =
     let simplified = List.map Simplifier.simplify state in
-    List.filter check_sat simplified
+    let filtered_sat = List.filter check_sat simplified in
+    List.map remove_junk filtered_sat
+
 
   module StmtStartData = struct
     type data = t
