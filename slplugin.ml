@@ -1,4 +1,3 @@
-(* TODO change doGuard to only add equality to formulas, not to filter them - this is done in doEdge *)
 open Dataflow2
 open Astral
 open Cil_types
@@ -13,6 +12,12 @@ module Self = Plugin.Register (struct
   let shortname = "SLplugin"
   let help = ""
 end)
+
+let print_warn (msg : string) =
+  print_string "\x1b[31;1m";
+  print_string msg;
+  print_char '\n';
+  print_string "\x1b[0m"
 
 let print_stmt (stmt : Cil_types.stmt) =
   (* print in yellow color *)
@@ -41,27 +46,23 @@ let mk_var (var : varinfo) : SSL.t = SSL.mk_var var.vname Sort.loc_ls
 let mk_var_plain (var : varinfo) : SSL.Variable.t =
   match mk_var var with Var var -> var | _ -> failwith ""
 
-(* TODO add distinction of how the variable will be used -> substitution/allocation/...*)
-let mk_fresh_var () : SSL.t =
-  let fresh_var = SSL.mk_fresh_var "fresh" Sort.loc_ls in
-  fresh_var
-
-(* TODO add distinction of how the variable will be used -> substitution/allocation/...*)
-let mk_fresh_var_plain () : SSL.Variable.t =
-  match mk_fresh_var () with Var var -> var | _ -> failwith ""
+let mk_fresh_var (basename : string) : SSL.t =
+  SSL.mk_fresh_var basename Sort.loc_ls
 
 let is_alloc fn_name =
   (* frama-c has support for allocation functions *)
   fn_name = "malloc" || fn_name = "calloc" || fn_name = "realloc"
 
-let to_atoms (formula : SSL.t) : SSL.t list =
+let rec to_atoms (formula : SSL.t) : SSL.t list =
+  print_warn @@ SSL.show formula;
   match formula with
   | SSL.Emp -> []
-  | SSL.Eq list -> [SSL.Eq list]
-  | SSL.Distinct list -> [SSL.Distinct list]
-  | SSL.PointsTo (src, dst) -> [SSL.PointsTo (src, dst)]
-  | SSL.LS (src, dst) -> [SSL.LS(src, dst)]
+  | SSL.Eq list -> [ SSL.Eq list ]
+  | SSL.Distinct list -> [ SSL.Distinct list ]
+  | SSL.PointsTo (src, dst) -> [ SSL.PointsTo (src, dst) ]
+  | SSL.LS (src, dst) -> [ SSL.LS (src, dst) ]
   | SSL.Star atoms -> atoms
+  | SSL.Or (lhs, rhs) -> to_atoms lhs @ to_atoms rhs
   | _ -> failwith "to_atoms: invalid shape of formula"
 
 (* if <var> is ptr type, creates formula (<var> -> x') where x' is fresh primed variable *)
@@ -71,14 +72,17 @@ let mk_init (lhs : varinfo) (rhs : local_init) (prev_state : SSL.t) : t2 =
   let new_atoms =
     match rhs with
     (* assuming all locations named by value are NULL *)
-    (* TODO handle initialization by another variable *)
-    | AssignInit (SingleInit exp) -> [ SSL.mk_eq lhs_var @@ SSL.mk_nil () ]
+    | AssignInit (SingleInit exp) -> (
+        match exp.enode with
+        | Lval (Var rhs, NoOffset) -> [ SSL.mk_eq lhs_var @@ mk_var rhs ]
+        (* assuming all locations named by value are NULL *)
+        | _ -> [ SSL.mk_eq lhs_var @@ SSL.mk_nil () ])
     (* initialization by function call *)
     | ConsInit (fn, _, _) ->
         if is_alloc fn.vname then
           [
             (* malloc can return valid pointer or nil *)
-            SSL.mk_pto lhs_var @@ mk_fresh_var ();
+            SSL.mk_pto lhs_var @@ mk_fresh_var "alloc";
             SSL.mk_eq lhs_var @@ SSL.mk_nil ();
           ]
         else
@@ -97,8 +101,8 @@ let list_contains (list : 'a List.t) (elem : 'a) : bool =
   | Some _ -> true
   | None -> false
 
-let list_count (list: 'a List.t) (elem: 'a) : int =
-  List.length @@ List.find_all ( (=) elem) list
+let list_count (list : 'a List.t) (elem : 'a) : int =
+  List.length @@ List.find_all (( = ) elem) list
 
 let find_new_equiv_vars (atoms : t2) (found_vars : SSL.Variable.t list) :
     SSL.Variable.t list =
@@ -145,7 +149,6 @@ let find_pto (formula : SSL.t) (var : SSL.Variable.t) :
       atoms
   in
   match target_var_struct with
-  (* TODO differentiate between list segment and simple pto, or is this simple pto? *)
   | Some (SSL.Var src, LS_t dst) -> Some (src, dst)
   | Some _ -> failwith "DLS/NLS found in get_pto"
   | None ->
@@ -155,7 +158,10 @@ let is_allocated (formula : SSL.t) (var : SSL.Variable.t) : bool =
   match find_pto formula var with Some _ -> true | None -> false
 
 let substitute_var (var : varinfo) (formula : SSL.t) : SSL.t =
-  SSL.substitute formula ~var:(mk_var_plain var) ~by:(mk_fresh_var_plain ())
+  match mk_fresh_var var.vname with
+  | SSL.Var fresh_var ->
+      SSL.substitute formula ~var:(mk_var_plain var) ~by:fresh_var
+  | _ -> failwith ""
 
 let mk_assign (lhs : varinfo) (rhs : exp) (prev_state : SSL.t) : SSL.t =
   match (lhs.vtype, rhs.enode) with
@@ -170,12 +176,12 @@ let mk_assign (lhs : varinfo) (rhs : exp) (prev_state : SSL.t) : SSL.t =
         [ SSL.mk_eq (mk_var lhs) (SSL.Var dst); substitute_var lhs prev_state ]
   | _ -> prev_state
 
+(* for `*a = b;` finds the atom `x -> y`, where x is in equivalence class of 'a',
+   and changes it to `x -> b`*)
 let mk_ptr_write (lhs : varinfo) (rhs : exp) (prev_state : SSL.t) : SSL.t =
   match (lhs.vtype, rhs.enode) with
-  (* *a = b *)
+  (* *a = b; *)
   | TPtr (_, _), Lval (Var rhs, NoOffset) -> (
-      (* FIXME this is wrong, don't want to look in the whole equivalence class,
-         only on lhs itself ... (a -> x), not (y -> x) * (a = y) *)
       let src, dst = Option.get @@ find_pto prev_state (mk_var_plain lhs) in
       match prev_state with
       | SSL.Star atoms ->
@@ -194,44 +200,26 @@ let mk_call (lhs : varinfo) (func : varinfo) (formula : SSL.t) : t2 =
   let lhs = mk_var lhs in
   if is_alloc func.vname then
     [
-      SSL.mk_star [ SSL.mk_pto lhs @@ mk_fresh_var (); formula ];
+      SSL.mk_star [ SSL.mk_pto lhs @@ mk_fresh_var "alloc"; formula ];
       SSL.mk_star [ SSL.mk_eq lhs @@ SSL.mk_nil (); formula ];
     ]
   else failwith "mk_call: function calls are not implemented"
 
-(* leaves in only those formulas, which satisfy `sat(phi * (lhs == rhs))` *)
-let filter_eq (lhs : varinfo) (rhs : varinfo) (states : t2) : t2 =
-  List.filter
-    (fun state_piece ->
-      check_sat
-      @@ SSL.mk_star [ state_piece; SSL.mk_eq (mk_var lhs) (mk_var rhs) ])
-    states
-
-(* filters out only those formulas, which satisfy `sat(phi * (lhs != rhs))` *)
-let filter_ne (lhs : varinfo) (rhs : varinfo) (states : t2) : t2 =
-  List.filter
-    (fun state_piece ->
-      check_sat
-      @@ SSL.mk_star [ state_piece; SSL.mk_distinct (mk_var lhs) (mk_var rhs) ])
-    states
-
-let print_warn (msg : string) =
-  print_string "\x1b[31;1m";
-  print_string msg;
-  print_char '\n';
-  print_string "\x1b[0m"
-
 let is_fresh_var (var : SSL.t) : bool =
   match var with
-    | Var (var, _) -> String.contains var '!'
-    | _ -> failwith "is_fresh_var: not a variable"
+  | Var (var, _) -> String.contains var '!'
+  | _ -> failwith "is_fresh_var: not a variable"
 
-let extract_vars (atoms: SSL.t list) : SSL.t list = 
-  List.map (fun atom -> match atom with 
-    | SSL.PointsTo (src, LS_t dst) -> [src; SSL.Var dst]
-    | SSL.Eq (list) -> list
-    | _ -> failwith "extract_vars: formula contains atoms other than pto or eq"
-  ) atoms
+let extract_vars (atoms : SSL.t list) : SSL.t list =
+  List.map
+    (fun atom ->
+      match atom with
+      | SSL.PointsTo (src, LS_t dst) -> [ src; SSL.Var dst ]
+      | SSL.Eq list -> list
+      | SSL.Distinct list -> list
+      | _ ->
+          failwith "extract_vars: formula contains atoms other than pto or eq")
+    atoms
   |> List.flatten
 
 (* removes all atoms of the form (x' -> y), where x' doesn't appear anywhere else *)
@@ -242,11 +230,12 @@ let remove_junk (formula : SSL.t) : SSL.t =
     List.partition
       (fun atom ->
         match atom with
-        | SSL.Eq [src; dst] -> 
+        | SSL.Eq [ src; dst ] ->
             (* filters out atoms (fresh = x), where fresh occurs only once in the formula *)
-            not (list_count vars src = 1 && is_fresh_var src || 
-            list_count vars dst = 1 && is_fresh_var dst)
-        | SSL.PointsTo (src, LS_t dst) -> 
+            not
+              ((list_count vars src = 1 && is_fresh_var src)
+              || (list_count vars dst = 1 && is_fresh_var dst))
+        | SSL.PointsTo (src, LS_t dst) ->
             let dst = SSL.Var dst in
 
             (* filters out atoms (fresh -> x), where fresh occurs only once in formula *)
@@ -254,11 +243,11 @@ let remove_junk (formula : SSL.t) : SSL.t =
 
             (* filters out atoms (fresh1 -> fresh2) and (fresh2 -> fresh1), if this is their only
                occurence in the formula *)
-            let is_cycle = is_fresh_var src && is_fresh_var dst &&
-              list_contains atoms (SSL.mk_pto dst src)
+            let is_cycle =
+              is_fresh_var src && is_fresh_var dst
+              && list_contains atoms (SSL.mk_pto dst src)
             in
-            not @@ is_alone || is_cycle
-        | SSL.Not SSL.Emp -> false (* this is `junk` *)
+            (not @@ is_alone) || is_cycle
         | _ -> true)
       atoms
   in
@@ -267,8 +256,7 @@ let remove_junk (formula : SSL.t) : SSL.t =
     print_warn "removing junk:";
     print_state junk_atoms;
 
-    (*add junk predicate back in*)
-    SSL.Star (valid_atoms))
+    SSL.Star valid_atoms)
 
 module Transfer = struct
   let name = "test"
@@ -323,7 +311,11 @@ module Transfer = struct
     let new_components =
       List.filter
         (fun new_piece ->
-          not @@ Solver.check_entl solver new_piece @@ SSL.mk_or old_state)
+          let old_state = SSL.mk_or old_state in
+          let vars = extract_vars @@ to_atoms old_state in
+          let fresh_vars = List.filter is_fresh_var vars in
+          let quantified = SSL.mk_exists fresh_vars old_state in
+          not @@ Solver.check_entl solver new_piece quantified)
         new_state
     in
     if List.length new_components == 0 then (
@@ -338,19 +330,30 @@ module Transfer = struct
   (* we need to filter the formulas of `state` for each branch to only those,
      which are satisfiable in each of the branches *)
   let doGuard _ (exp : exp) (state : t) : t guardaction * t guardaction =
+    let add_eq lhs rhs state =
+      List.map
+        (fun f -> SSL.mk_star [ f; SSL.mk_eq (mk_var lhs) (mk_var rhs) ])
+        state
+    in
+    let add_ne lhs rhs state =
+      List.map
+        (fun f -> SSL.mk_star [ f; SSL.mk_distinct (mk_var lhs) (mk_var rhs) ])
+        state
+    in
+
     let th, el =
       match exp.enode with
       | BinOp (Eq, lhs, rhs, _) -> (
           (* if (a == b) {...} *)
           match (lhs.enode, rhs.enode) with
           | Lval (Var lhs, NoOffset), Lval (Var rhs, NoOffset) ->
-              (filter_eq lhs rhs state, filter_ne lhs rhs state)
+              (add_eq lhs rhs state, add_ne lhs rhs state)
           | _ -> (state, state))
       | BinOp (Ne, lhs, rhs, _) -> (
           (* if (a != b) {...} *)
           match (lhs.enode, rhs.enode) with
           | Lval (Var lhs, NoOffset), Lval (Var rhs, NoOffset) ->
-              (filter_ne lhs rhs state, filter_eq lhs rhs state)
+              (add_ne lhs rhs state, add_eq lhs rhs state)
           | _ -> (state, state))
       (* all other conditions don't filter out any states *)
       | _ -> (state, state)
@@ -362,10 +365,8 @@ module Transfer = struct
 
   (* simplify formulas and filter out unsatisfiable ones *)
   let doEdge _ _ state =
-    let simplified = List.map Simplifier.simplify state in
-    let filtered_sat = List.filter check_sat simplified in
-    List.map remove_junk filtered_sat
-
+    List.map Simplifier.simplify state
+    |> List.filter check_sat |> List.map remove_junk
 
   module StmtStartData = struct
     type data = t
