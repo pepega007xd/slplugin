@@ -13,6 +13,8 @@ module Self = Plugin.Register (struct
   let help = ""
 end)
 
+let fail message = Self.fatal ~current:true message
+
 let print_warn (msg : string) =
   print_string "\x1b[31;1m";
   print_string msg;
@@ -54,7 +56,6 @@ let is_alloc fn_name =
   fn_name = "malloc" || fn_name = "calloc" || fn_name = "realloc"
 
 let rec to_atoms (formula : SSL.t) : SSL.t list =
-  print_warn @@ SSL.show formula;
   match formula with
   | SSL.Emp -> []
   | SSL.Eq list -> [ SSL.Eq list ]
@@ -152,7 +153,7 @@ let find_pto (formula : SSL.t) (var : SSL.Variable.t) :
   | Some (SSL.Var src, LS_t dst) -> Some (src, dst)
   | Some _ -> failwith "DLS/NLS found in get_pto"
   | None ->
-      failwith "did not find any points-to target in `get_pto` (maybe it's ls?)"
+      fail "did not find any points-to target in `get_pto` (maybe it's ls?)"
 
 let is_allocated (formula : SSL.t) (var : SSL.Variable.t) : bool =
   match find_pto formula var with Some _ -> true | None -> false
@@ -161,7 +162,7 @@ let substitute_var (var : varinfo) (formula : SSL.t) : SSL.t =
   match mk_fresh_var var.vname with
   | SSL.Var fresh_var ->
       SSL.substitute formula ~var:(mk_var_plain var) ~by:fresh_var
-  | _ -> failwith ""
+  | _ -> failwith "unreachable"
 
 let mk_assign (lhs : varinfo) (rhs : exp) (prev_state : SSL.t) : SSL.t =
   match (lhs.vtype, rhs.enode) with
@@ -197,6 +198,7 @@ let mk_ptr_write (lhs : varinfo) (rhs : exp) (prev_state : SSL.t) : SSL.t =
 
 let mk_call (lhs : varinfo) (func : varinfo) (formula : SSL.t) : t2 =
   let formula = substitute_var lhs formula in
+
   let lhs = mk_var lhs in
   if is_alloc func.vname then
     [
@@ -273,7 +275,6 @@ module Transfer = struct
     match instr with
     | Local_init (lhs, rhs, _) ->
         (* int *a = malloc(...) *)
-        Printf.printf "local_init lhs: %s\n" lhs.vname;
         List.flatten @@ List.map (mk_init lhs rhs) prev_state
     | Set (lhs, rhs, _) -> (
         match lhs with
@@ -293,21 +294,21 @@ module Transfer = struct
     | _ -> failwith "unimplemented"
 
   (* `state` comes from doInstr, so it is actually the new state *)
-  let computeFirstPredecessor _ state =
-    print_string "computeFirstPredecessor: ";
-    print_state state;
-    state
+  let computeFirstPredecessor _ state = state
 
   (* Stmt is reached multiple times ~> join operator *)
   (* iterate over all formulas of new_state `phi`, and each one that doesn't satisfy
      (phi => old) has to be added to `old`. If old is not changed, None is returned. *)
   let combinePredecessors (stmt : stmt) ~old:(old_state : t) (new_state : t) :
       t option =
-    print_endline "\ncombinePredecessors\nold_state:";
-    print_state old_state;
-    print_endline "new_state:";
-    print_state new_state;
+    print_warn "combinePredecessors";
     print_stmt stmt;
+    print_endline "old state:";
+    print_state old_state;
+    print_endline "new state:";
+    print_state new_state;
+    print_newline ();
+
     let new_components =
       List.filter
         (fun new_piece ->
@@ -318,13 +319,9 @@ module Transfer = struct
           not @@ Solver.check_entl solver new_piece quantified)
         new_state
     in
-    if List.length new_components == 0 then (
-      Printf.printf "Result: state did not change\n";
-      None)
+    if List.length new_components == 0 then None
     else
       let joined_state = new_components @ old_state in
-      Printf.printf "Result: state changed\njoined_state:\n";
-      print_state joined_state;
       Some joined_state
 
   (* we need to filter the formulas of `state` for each branch to only those,
@@ -364,9 +361,22 @@ module Transfer = struct
   let doStmt _ _ = SDefault
 
   (* simplify formulas and filter out unsatisfiable ones *)
-  let doEdge _ _ state =
-    List.map Simplifier.simplify state
-    |> List.filter check_sat |> List.map remove_junk
+  let doEdge prev_stmt next_stmt state =
+    print_warn "doEdge";
+    print_stmt prev_stmt;
+    print_newline ();
+    print_stmt next_stmt;
+    print_state state;
+
+    let modified =
+      List.map Simplifier.simplify state
+      |> List.filter check_sat |> List.map remove_junk
+    in
+    print_warn "modified state:";
+    print_state modified;
+    print_endline "==============";
+    print_newline ();
+    modified
 
   module StmtStartData = struct
     type data = t
@@ -410,4 +420,5 @@ let run () =
          a.sid - b.sid)
   |> List.iter print_result |> ignore
 
+let () = Db.Main.extend Preprocessing.remove_casts
 let () = Db.Main.extend run
