@@ -1,3 +1,5 @@
+open Slplugin_options
+
 open Dataflow2
 open Astral
 open Cil_types
@@ -7,11 +9,6 @@ type t2 = SSL.t list
 let results = ref (Hashtbl.create 1024)
 let solver = Solver.init ()
 
-module Self = Plugin.Register (struct
-  let name = "Shape analysis"
-  let shortname = "SLplugin"
-  let help = ""
-end)
 
 let fail message = Self.fatal ~current:true message
 
