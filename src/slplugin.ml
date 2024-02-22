@@ -7,7 +7,12 @@ open Cil_types
 type t2 = SSL.t list
 
 let results = ref (Hashtbl.create 1024)
-let solver = Solver.init ()
+
+let solver = ref (Solver.init ())
+
+let init_solver () =
+  let dump_queries = if Dump_queries.get () then `Full "astral_queries" else `None in
+  solver := Solver.init ~dump_queries ()
 
 
 let fail message = Self.fatal ~current:true message
@@ -39,7 +44,7 @@ let print_state (state : t2) =
   |> print_endline
 
 (* checks whether formula has any model *)
-let check_sat (formula : SSL.t) : bool = Solver.check_sat solver formula
+let check_sat (formula : SSL.t) : bool = Solver.check_sat !solver formula
 let mk_var (var : varinfo) : SSL.t = SSL.mk_var var.vname Sort.loc_ls
 
 let mk_var_plain (var : varinfo) : SSL.Variable.t =
@@ -313,7 +318,7 @@ module Transfer = struct
           let vars = extract_vars @@ to_atoms old_state in
           let fresh_vars = List.filter is_fresh_var vars in
           let quantified = SSL.mk_exists fresh_vars old_state in
-          not @@ Solver.check_entl solver new_piece quantified)
+          not @@ Solver.check_entl !solver new_piece quantified)
         new_state
     in
     if List.length new_components == 0 then None
@@ -397,6 +402,7 @@ let print_result (result : stmt * t2) =
   print_state state
 
 let run () =
+  init_solver ();
   let main, _ = Globals.entry_point () in
   let first_stmt = Kernel_function.find_first_stmt main in
 
