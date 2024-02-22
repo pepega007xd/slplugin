@@ -1,3 +1,4 @@
+open Slplugin_options
 open Dataflow2
 open Astral
 open Cil_types
@@ -5,13 +6,13 @@ open Cil_types
 type t2 = SSL.t list
 
 let results = ref (Hashtbl.create 1024)
-let solver = Solver.init ()
+let solver = ref (Solver.init ())
 
-module Self = Plugin.Register (struct
-  let name = "Shape analysis"
-  let shortname = "SLplugin"
-  let help = ""
-end)
+let init_solver () =
+  let dump_queries =
+    if Dump_queries.get () then `Full "astral_queries" else `None
+  in
+  solver := Solver.init ~dump_queries ()
 
 let fail message = Self.fatal ~current:true message
 
@@ -42,8 +43,8 @@ let print_state (state : t2) =
   |> print_endline
 
 (* checks whether formula has any model *)
-let check_sat (formula : SSL.t) : bool = Solver.check_sat solver formula
 let mk_var (var : string) : SSL.t = SSL.mk_var var Sort.loc_ls
+let check_sat (formula : SSL.t) : bool = Solver.check_sat !solver formula
 
 let mk_var_plain (var : string) : SSL.Variable.t =
   match mk_var var with Var var -> var | _ -> failwith ""
@@ -378,7 +379,7 @@ module Transfer = struct
           let vars = extract_vars @@ get_atoms old_state in
           let fresh_vars = List.filter is_fresh_var vars |> list_deduplicate in
           let quantified_old_state = SSL.mk_exists fresh_vars old_state in
-          not @@ Solver.check_entl solver new_piece quantified_old_state)
+          not @@ Solver.check_entl !solver new_piece quantified_old_state)
         new_state
     in
     if List.length new_components == 0 then None
@@ -468,6 +469,7 @@ let print_result (result : stmt * t2) =
   print_state state
 
 let run () =
+  init_solver ();
   let main, _ = Globals.entry_point () in
   let first_stmt = Kernel_function.find_first_stmt main in
 
