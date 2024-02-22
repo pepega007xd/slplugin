@@ -43,9 +43,9 @@ let print_state (state : t2) =
 
 (* checks whether formula has any model *)
 let check_sat (formula : SSL.t) : bool = Solver.check_sat solver formula
-let mk_var (var : varinfo) : SSL.t = SSL.mk_var var.vname Sort.loc_ls
+let mk_var (var : string) : SSL.t = SSL.mk_var var Sort.loc_ls
 
-let mk_var_plain (var : varinfo) : SSL.Variable.t =
+let mk_var_plain (var : string) : SSL.Variable.t =
   match mk_var var with Var var -> var | _ -> failwith ""
 
 let mk_fresh_var (basename : string) : SSL.t =
@@ -55,7 +55,7 @@ let is_alloc fn_name =
   (* frama-c has support for allocation functions *)
   fn_name = "malloc" || fn_name = "calloc" || fn_name = "realloc"
 
-let rec to_atoms (formula : SSL.t) : SSL.t list =
+let rec get_atoms (formula : SSL.t) : SSL.t list =
   match formula with
   | SSL.Emp -> []
   | SSL.Eq list -> [ SSL.Eq list ]
@@ -63,19 +63,19 @@ let rec to_atoms (formula : SSL.t) : SSL.t list =
   | SSL.PointsTo (src, dst) -> [ SSL.PointsTo (src, dst) ]
   | SSL.LS (src, dst) -> [ SSL.LS (src, dst) ]
   | SSL.Star atoms -> atoms
-  | SSL.Or (lhs, rhs) -> to_atoms lhs @ to_atoms rhs
+  | SSL.Or (lhs, rhs) -> get_atoms lhs @ get_atoms rhs
   | _ -> failwith "to_atoms: invalid shape of formula"
 
 (* if <var> is ptr type, creates formula (<var> -> x') where x' is fresh primed variable *)
 (* otherwise, returns prev_state *)
 let mk_init (lhs : varinfo) (rhs : local_init) (prev_state : SSL.t) : t2 =
-  let lhs_var = mk_var lhs in
+  let lhs_var = mk_var lhs.vname in
   let new_atoms =
     match rhs with
     (* assuming all locations named by value are NULL *)
     | AssignInit (SingleInit exp) -> (
         match exp.enode with
-        | Lval (Var rhs, NoOffset) -> [ SSL.mk_eq lhs_var @@ mk_var rhs ]
+        | Lval (Var rhs, NoOffset) -> [ SSL.mk_eq lhs_var @@ mk_var rhs.vname ]
         (* assuming all locations named by value are NULL *)
         | _ -> [ SSL.mk_eq lhs_var @@ SSL.mk_nil () ])
     (* initialization by function call *)
@@ -138,7 +138,7 @@ let find_pto (formula : SSL.t) (var : SSL.Variable.t) :
     (SSL.Variable.t * SSL.Variable.t) option =
   (* flattens formula to single sep: (star a b c d ...) *)
   let formula = Simplifier.simplify formula in
-  let atoms = to_atoms formula in
+  let atoms = get_atoms formula in
   let equiv_class = mk_equiv_class_rec atoms [ var ] in
   let target_var_struct =
     List.find_map
@@ -158,8 +158,14 @@ let find_pto (formula : SSL.t) (var : SSL.Variable.t) :
 let is_allocated (formula : SSL.t) (var : SSL.Variable.t) : bool =
   match find_pto formula var with Some _ -> true | None -> false
 
-let substitute_var (var : varinfo) (formula : SSL.t) : SSL.t =
-  match mk_fresh_var var.vname with
+let substitute_var_plain (var : string) (formula : SSL.t) : SSL.t =
+  match mk_fresh_var var with
+  | SSL.Var fresh_var ->
+      SSL.substitute formula ~var:(mk_var_plain var) ~by:fresh_var
+  | _ -> failwith "unreachable"
+
+let substitute_var (var : string) (formula : SSL.t) : SSL.t =
+  match mk_fresh_var var with
   | SSL.Var fresh_var ->
       SSL.substitute formula ~var:(mk_var_plain var) ~by:fresh_var
   | _ -> failwith "unreachable"
@@ -168,10 +174,14 @@ let mk_assign (lhs : varinfo) (rhs : exp) (prev_state : SSL.t) : SSL.t =
   match (lhs.vtype, rhs.enode) with
   (* a = b; *)
   | TPtr (_, _), Lval (Var rhs, NoOffset) ->
+      let lhs = lhs.vname in
+      let rhs = rhs.vname in
       SSL.mk_star
         [ SSL.mk_eq (mk_var lhs) (mk_var rhs); substitute_var lhs prev_state ]
   (* a = *b; *)
   | TPtr (_, _), AddrOf (Var rhs, NoOffset) ->
+      let lhs = lhs.vname in
+      let rhs = rhs.vname in
       let src, dst = Option.get @@ find_pto prev_state (mk_var_plain rhs) in
       SSL.mk_star
         [ SSL.mk_eq (mk_var lhs) (SSL.Var dst); substitute_var lhs prev_state ]
@@ -183,13 +193,15 @@ let mk_ptr_write (lhs : varinfo) (rhs : exp) (prev_state : SSL.t) : SSL.t =
   match (lhs.vtype, rhs.enode) with
   (* *a = b; *)
   | TPtr (_, _), Lval (Var rhs, NoOffset) -> (
-      let src, dst = Option.get @@ find_pto prev_state (mk_var_plain lhs) in
+      let src, dst =
+        Option.get @@ find_pto prev_state (mk_var_plain lhs.vname)
+      in
       match prev_state with
       | SSL.Star atoms ->
           List.map
             (fun atom ->
               if atom = SSL.mk_pto (SSL.Var src) (SSL.Var dst) then
-                SSL.mk_pto (SSL.Var src) (mk_var rhs)
+                SSL.mk_pto (SSL.Var src) (mk_var rhs.vname)
               else atom)
             atoms
           |> SSL.mk_star
@@ -197,9 +209,9 @@ let mk_ptr_write (lhs : varinfo) (rhs : exp) (prev_state : SSL.t) : SSL.t =
   | _ -> prev_state
 
 let mk_call (lhs : varinfo) (func : varinfo) (formula : SSL.t) : t2 =
-  let formula = substitute_var lhs formula in
+  let formula = substitute_var lhs.vname formula in
 
-  let lhs = mk_var lhs in
+  let lhs = mk_var lhs.vname in
   if is_alloc func.vname then
     [
       SSL.mk_star [ SSL.mk_pto lhs @@ mk_fresh_var "alloc"; formula ];
@@ -207,9 +219,11 @@ let mk_call (lhs : varinfo) (func : varinfo) (formula : SSL.t) : t2 =
     ]
   else failwith "mk_call: function calls are not implemented"
 
+let is_fresh_var_str (var : string) : bool = String.contains var '!'
+
 let is_fresh_var (var : SSL.t) : bool =
   match var with
-  | Var (var, _) -> String.contains var '!'
+  | Var (var, _) -> is_fresh_var_str var
   | _ -> failwith "is_fresh_var: not a variable"
 
 let extract_vars (atoms : SSL.t list) : SSL.t list =
@@ -226,7 +240,7 @@ let extract_vars (atoms : SSL.t list) : SSL.t list =
 
 (* removes all atoms of the form (x' -> y), where x' doesn't appear anywhere else *)
 let remove_junk (formula : SSL.t) : SSL.t =
-  let atoms = to_atoms formula in
+  let atoms = get_atoms formula in
   let vars = extract_vars atoms in
   let valid_atoms, junk_atoms =
     List.partition
@@ -259,6 +273,54 @@ let remove_junk (formula : SSL.t) : SSL.t =
     print_state junk_atoms;
 
     SSL.Star valid_atoms)
+
+let rec list_deduplicate (lst : 'a list) : 'a list =
+  match lst with
+  | [] -> []
+  | first :: rest ->
+      if list_contains rest first then list_deduplicate rest
+      else first :: list_deduplicate rest
+
+let rec substitute_with_nil (var : SSL.Variable.t) (formula : SSL.t) : SSL.t =
+  let nil_name, _ = var in
+  let subst = substitute_with_nil var in
+  match formula with
+  | SSL.Var (name, _) when name = nil_name -> SSL.mk_nil ()
+  | SSL.Var var -> SSL.Var var
+  | SSL.Eq lst -> SSL.mk_eq_list @@ List.map subst lst
+  | SSL.Distinct lst -> SSL.mk_distinct_list @@ List.map subst lst
+  | SSL.PointsTo (src, LS_t dst) -> SSL.mk_pto src @@ subst @@ SSL.Var var
+  | SSL.Star lst -> SSL.mk_star @@ List.map subst lst
+  | _ -> fail "substitute_with_nil: unsuppored shape of formula"
+
+let remove_nil_vars (formula : SSL.t) : SSL.t =
+  let atoms = get_atoms formula in
+  let nil = SSL.mk_nil () in
+  let nil_fresh_vars =
+    List.filter_map
+      (fun atom ->
+        match atom with
+        | SSL.Eq [ a; b ] when is_fresh_var a && b = nil -> Some a
+        | SSL.Eq [ a; b ] when is_fresh_var b && a = nil -> Some b
+        | _ -> None)
+      atoms
+    |> List.map (fun var -> match var with SSL.Var var -> var | _ -> fail "")
+    |> List.map (fun var -> mk_equiv_class_rec atoms [ var ])
+    |> List.flatten
+  in
+  List.iter
+    (fun x ->
+      print_warn @@ SSL.Variable.show x;
+      print_warn "AAAA")
+    nil_fresh_vars;
+
+  List.fold_left
+    (fun formula var -> substitute_with_nil var formula)
+    formula nil_fresh_vars
+
+let abstract_to_ls (formula : SSL.t) : SSL.t =
+  let atoms = get_atoms formula in
+  formula
 
 module Transfer = struct
   let name = "test"
@@ -313,10 +375,10 @@ module Transfer = struct
       List.filter
         (fun new_piece ->
           let old_state = SSL.mk_or old_state in
-          let vars = extract_vars @@ to_atoms old_state in
-          let fresh_vars = List.filter is_fresh_var vars in
-          let quantified = SSL.mk_exists fresh_vars old_state in
-          not @@ Solver.check_entl solver new_piece quantified)
+          let vars = extract_vars @@ get_atoms old_state in
+          let fresh_vars = List.filter is_fresh_var vars |> list_deduplicate in
+          let quantified_old_state = SSL.mk_exists fresh_vars old_state in
+          not @@ Solver.check_entl solver new_piece quantified_old_state)
         new_state
     in
     if List.length new_components == 0 then None
@@ -344,12 +406,16 @@ module Transfer = struct
           (* if (a == b) {...} *)
           match (lhs.enode, rhs.enode) with
           | Lval (Var lhs, NoOffset), Lval (Var rhs, NoOffset) ->
+              let lhs = lhs.vname in
+              let rhs = rhs.vname in
               (add_eq lhs rhs state, add_ne lhs rhs state)
           | _ -> (state, state))
       | BinOp (Ne, lhs, rhs, _) -> (
           (* if (a != b) {...} *)
           match (lhs.enode, rhs.enode) with
           | Lval (Var lhs, NoOffset), Lval (Var rhs, NoOffset) ->
+              let lhs = lhs.vname in
+              let rhs = rhs.vname in
               (add_ne lhs rhs state, add_eq lhs rhs state)
           | _ -> (state, state))
       (* all other conditions don't filter out any states *)
@@ -357,7 +423,7 @@ module Transfer = struct
     in
     (GUse th, GUse el)
 
-  (* probably not useful *)
+  (* we always want to continue with analysis *)
   let doStmt _ _ = SDefault
 
   (* simplify formulas and filter out unsatisfiable ones *)
@@ -371,7 +437,9 @@ module Transfer = struct
     let modified =
       List.map Simplifier.simplify state
       |> List.filter check_sat |> List.map remove_junk
+      |> List.map remove_nil_vars
     in
+
     print_warn "modified state:";
     print_state modified;
     print_endline "==============";
