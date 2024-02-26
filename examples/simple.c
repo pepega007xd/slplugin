@@ -6,9 +6,9 @@ int main() {
     void *x = malloc(sizeof(void *));
 
     if (x == nullptr) {
-        puts("then");
+        (void)"then";
     } else {
-        puts("else");
+        (void)"else";
     }
     x = nullptr;
     return 0;
