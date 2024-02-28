@@ -1,6 +1,8 @@
 open Astral
 open Slplugin_options
 
+let solver = ref (Solver.init ())
+let check_sat (formula : SSL.t) : bool = Solver.check_sat !solver formula
 let fail message = Self.fatal ~current:true message
 
 let is_fresh_var (var : SSL.Variable.t) : bool =
@@ -16,7 +18,7 @@ let rec get_atoms (formula : SSL.t) : SSL.t list =
   | SSL.LS (src, dst) -> [ SSL.LS (src, dst) ]
   | SSL.Star atoms -> atoms
   | SSL.Or (lhs, rhs) -> get_atoms lhs @ get_atoms rhs
-  | _ -> fail "to_atoms: invalid shape of formula"
+  | _ -> fail "get_atoms: invalid shape of formula"
 
 let list_contains (list : 'a List.t) (elem : 'a) : bool =
   match List.find_opt (fun x -> x = elem) list with

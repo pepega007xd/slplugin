@@ -6,8 +6,6 @@ open Common
 open Dataflow2
 
 let results : (stmt, SSL.t list) Hashtbl.t ref = ref (Hashtbl.create 1024)
-let solver = ref (Solver.init ())
-let check_sat (formula : SSL.t) : bool = Solver.check_sat !solver formula
 let name = "slplugin"
 let debug = false
 
@@ -182,6 +180,7 @@ let doEdge prev_stmt next_stmt state =
   let modified =
     List.map Simplifier.simplify state
     |> List.filter check_sat |> List.map remove_junk |> List.map remove_nil_vars
+    |> List.map convert_to_ls
   in
 
   if Debug_output.get () then (

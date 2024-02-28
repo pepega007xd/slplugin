@@ -14,7 +14,7 @@ let run () =
     if Slplugin_options.Dump_queries.get () then `Full "astral_queries"
     else `None
   in
-  solver := Solver.init ~dump_queries ();
+  Common.solver := Solver.init ~dump_queries ();
 
   let main, _ = Globals.entry_point () in
   let first_stmt = Kernel_function.find_first_stmt main in
