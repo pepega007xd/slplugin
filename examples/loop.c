@@ -12,7 +12,7 @@ int main() {
     void **temp = NULL;
 
     while (nondeterministic) {
-        temp = malloc(sizeof(void *));
+        temp = __safe_malloc(sizeof(void *));
 
         if (temp != nullptr) {
             *x = temp;

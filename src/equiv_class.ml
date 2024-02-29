@@ -40,13 +40,12 @@ let find_pto (formula : SSL.t) (var : SSL.Variable.t) :
     List.find_map
       (fun atom ->
         match atom with
-        | SSL.PointsTo (src, dst) ->
-            if list_contains equiv_class var then Some (src, dst) else None
+        | SSL.PointsTo (Var src, LS_t dst) when list_contains equiv_class src ->
+            Some (src, dst)
         | _ -> None)
       atoms
   in
   match target_var_struct with
-  | Some (SSL.Var src, LS_t dst) -> Some (src, dst)
-  | Some _ -> fail "DLS/NLS found in get_pto"
+  | Some (src, dst) -> Some (src, dst)
   | None ->
       fail "did not find any points-to target in `get_pto` (maybe it's ls?)"

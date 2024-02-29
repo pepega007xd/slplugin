@@ -40,13 +40,63 @@ let call (lhs : SSL.Variable.t) (func_name : string) (formula : SSL.t) :
     SSL.t list =
   let formula = substitute_by_fresh lhs formula in
   (*TODO implement free *)
-  let is_alloc fn_name =
-    fn_name = "malloc" || fn_name = "calloc" || fn_name = "realloc"
-  in
-  if is_alloc func_name then
-    [
+  match func_name with
+  | "malloc" ->
+      [
+        SSL.mk_star
+          [ SSL.mk_pto (Var lhs) @@ Var (mk_fresh_var "alloc"); formula ];
+        SSL.mk_star [ SSL.mk_eq (Var lhs) @@ SSL.mk_nil (); formula ];
+      ]
+  | "__safe_malloc" ->
+      (* malloc that always succeeds - for simpler experimenting *)
+      [
+        SSL.mk_star
+          [ SSL.mk_pto (Var lhs) @@ Var (mk_fresh_var "alloc"); formula ];
+      ]
+  | _ -> fail "mk_call: function calls are not implemented"
+
+module Tests = struct
+  open Testing
+
+  let%test_unit "assign" =
+    let input = SSL.mk_star [ SSL.mk_pto x z; SSL.mk_pto y y' ] in
+    (* x = y; *)
+    let result = Simplifier.simplify @@ assign x_var y_var input in
+    let expected =
       SSL.mk_star
-        [ SSL.mk_pto (Var lhs) @@ Var (mk_fresh_var "alloc"); formula ];
-      SSL.mk_star [ SSL.mk_eq (Var lhs) @@ SSL.mk_nil (); formula ];
-    ]
-  else fail "mk_call: function calls are not implemented"
+        [ SSL.mk_pto (mk_var "x!0") z; SSL.mk_pto y y'; SSL.mk_eq x y ]
+    in
+    print result;
+    print expected;
+    assert (is_equal result expected)
+
+  let%test_unit "assign_lhs_deref" =
+    let input = SSL.mk_star [ SSL.mk_pto x z ] in
+    (* *x = y; *)
+    let result = assign_lhs_deref x_var y_var input in
+    let expected = SSL.mk_star [ SSL.mk_pto x y ] in
+    print result;
+    print expected;
+    assert (is_equal result expected)
+
+  let%test_unit "assign_lhs_deref2" =
+    let input = SSL.mk_star [ SSL.mk_pto x z; SSL.mk_pto z z' ] in
+    (* *x = y; *)
+    let result = assign_lhs_deref x_var y_var input in
+    let expected = SSL.mk_star [ SSL.mk_pto x y; SSL.mk_pto z z' ] in
+    print result;
+    print expected;
+    assert (is_equal result expected)
+
+  let%test_unit "assign_rhs_deref" =
+    let input = SSL.mk_star [ SSL.mk_pto x z; SSL.mk_pto y y' ] in
+    (* x = *y; *)
+    let result = Simplifier.simplify @@ assign_rhs_deref x_var y_var input in
+    let expected =
+      SSL.mk_star
+        [ SSL.mk_pto (mk_var "x!1") z; SSL.mk_pto y y'; SSL.mk_eq x y' ]
+    in
+    print result;
+    print expected;
+    assert (is_equal result expected)
+end

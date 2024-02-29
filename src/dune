@@ -19,7 +19,7 @@
     (libraries frama-c.init.cmdline) ; this is required to run inline tests in frama-c plugin
     (flags (-stop-on-error))
   )
-  (preprocess (pps ppx_inline_test))
+  (preprocess (pps ppx_assert ppx_inline_test))
 )
 
 (plugin

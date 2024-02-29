@@ -42,6 +42,7 @@ let extract_vars (atoms : SSL.t list) : SSL.Variable.t list =
       | SSL.PointsTo (Var src, LS_t dst) -> [ src; dst ]
       | SSL.Eq [ Var lhs; Var rhs ] -> [ lhs; rhs ]
       | SSL.Distinct [ Var lhs; Var rhs ] -> [ lhs; rhs ]
+      | SSL.LS (Var lhs, Var rhs) -> [ lhs; rhs ]
       | _ -> fail "extract_vars: formula contains atoms other than pto or eq")
     atoms
   |> List.flatten

@@ -45,6 +45,13 @@ let print_result (result : (stmt, SSL.t list) Hashtbl.t) =
          print_stmt stmt;
          print_state state)
 
+let x_var = SSL.Variable.mk "x" Sort.loc_ls
+let y_var = SSL.Variable.mk "y" Sort.loc_ls
+let z_var = SSL.Variable.mk "z" Sort.loc_ls
+let x'_var = SSL.Variable.mk "x!" Sort.loc_ls
+let y'_var = SSL.Variable.mk "y!" Sort.loc_ls
+let z'_var = SSL.Variable.mk "z!" Sort.loc_ls
+let nil_var = SSL.Variable.nil
 let mk_var (name : string) : SSL.t = SSL.mk_var name Sort.loc_ls
 let x = mk_var "x"
 let y = mk_var "y"
