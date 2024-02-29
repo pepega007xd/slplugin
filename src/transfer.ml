@@ -66,27 +66,21 @@ module Tests = struct
       SSL.mk_star
         [ SSL.mk_pto (mk_var "x!0") z; SSL.mk_pto y y'; SSL.mk_eq x y ]
     in
-    print result;
-    print expected;
-    assert (is_equal result expected)
+    assert_eq result expected
 
   let%test_unit "assign_lhs_deref" =
     let input = SSL.mk_star [ SSL.mk_pto x z ] in
     (* *x = y; *)
     let result = assign_lhs_deref x_var y_var input in
     let expected = SSL.mk_star [ SSL.mk_pto x y ] in
-    print result;
-    print expected;
-    assert (is_equal result expected)
+    assert_eq result expected
 
   let%test_unit "assign_lhs_deref2" =
     let input = SSL.mk_star [ SSL.mk_pto x z; SSL.mk_pto z z' ] in
     (* *x = y; *)
     let result = assign_lhs_deref x_var y_var input in
     let expected = SSL.mk_star [ SSL.mk_pto x y; SSL.mk_pto z z' ] in
-    print result;
-    print expected;
-    assert (is_equal result expected)
+    assert_eq result expected
 
   let%test_unit "assign_rhs_deref" =
     let input = SSL.mk_star [ SSL.mk_pto x z; SSL.mk_pto y y' ] in
@@ -96,7 +90,5 @@ module Tests = struct
       SSL.mk_star
         [ SSL.mk_pto (mk_var "x!1") z; SSL.mk_pto y y'; SSL.mk_eq x y' ]
     in
-    print result;
-    print expected;
-    assert (is_equal result expected)
+    assert_eq result expected
 end

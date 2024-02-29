@@ -62,7 +62,13 @@ let z' = mk_var "z!"
 let nil = SSL.mk_nil ()
 let print (formula : SSL.t) = print_warn @@ SSL.show formula
 
-let is_equal (lhs : SSL.t) (rhs : SSL.t) : bool =
-  let lhs = List.sort SSL.compare @@ get_atoms lhs in
-  let rhs = List.sort SSL.compare @@ get_atoms rhs in
-  List.equal SSL.equal lhs rhs
+let assert_eq (lhs : SSL.t) (rhs : SSL.t) =
+  let lhs_atoms = List.sort SSL.compare @@ get_atoms lhs in
+  let rhs_atoms = List.sort SSL.compare @@ get_atoms rhs in
+  if not (List.equal SSL.equal lhs_atoms rhs_atoms) then (
+    print lhs;
+    print rhs;
+    assert false)
+
+(*TODO: get this working *)
+(* let%test_unit "aaaa" = [%test_eq: SSL.t] SSL.Emp SSL.Emp *)

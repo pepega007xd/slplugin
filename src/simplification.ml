@@ -128,9 +128,7 @@ module Tests = struct
   let%test_unit "abstraction_ls_nothing" =
     let input = SSL.mk_star [ SSL.mk_pto x y'; SSL.mk_pto y' z ] in
     let result = convert_to_ls input in
-    print input;
-    print result;
-    assert (is_equal input result)
+    assert_eq input result
 
   let%test_unit "abstraction_ls_allocated_end" =
     let input =
@@ -138,15 +136,11 @@ module Tests = struct
     in
     let result = convert_to_ls input in
     let expected = SSL.mk_star [ SSL.mk_ls x z; SSL.mk_distinct x z ] in
-    print result;
-    print expected;
-    assert (is_equal result expected)
+    assert_eq result expected
 
   let%test_unit "abstraction_ls_nil_end" =
     let input = SSL.mk_star [ SSL.mk_pto x y'; SSL.mk_pto y' nil ] in
     let result = convert_to_ls input in
     let expected = SSL.mk_star [ SSL.mk_ls x nil; SSL.mk_distinct x nil ] in
-    print result;
-    print expected;
-    assert (is_equal result expected)
+    assert_eq result expected
 end
