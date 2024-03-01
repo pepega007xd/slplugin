@@ -21,11 +21,13 @@ let print_stmt (stmt : Cil_types.stmt) =
   print_string "\x1b[0m"
 
 let print_state (state : SSL.t list) =
-  let space = "    " in
-  print_string space;
-  List.map (fun f -> SSL.show @@ Simplifier.simplify f) state
-  |> String.concat ("\n" ^ space)
-  |> print_endline
+  if List.is_empty state then print_endline "<empty state>"
+  else
+    let space = "    " in
+    print_string space;
+    List.map (fun f -> SSL.show @@ Simplifier.simplify f) state
+    |> String.concat ("\n" ^ space)
+    |> print_endline
 
 let print_result (result : (stmt, SSL.t list) Hashtbl.t) =
   print_warn "Analysis results:";

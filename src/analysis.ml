@@ -51,15 +51,18 @@ let doInstr (stmt : stmt) (instr : instr) (prev_state : SSL.t list) : SSL.t list
             List.map
               (Transfer.assign_lhs_deref (var_of_varinfo lhs) (var_of_exp rhs))
               prev_state
+            |> List.flatten
         (* a = *b; *)
-        | (Var lhs, NoOffset), AddrOf (Var rhs, NoOffset) ->
+        | ( (Var lhs, NoOffset),
+            Lval (Mem { enode = Lval (Var rhs, NoOffset); _ }, NoOffset) ) ->
             List.map
               (Transfer.assign_rhs_deref (var_of_varinfo lhs)
                  (var_of_varinfo rhs))
               prev_state
+            |> List.flatten
         (* a = b; *)
         (* a = NULL; *)
-        | (Var lhs, NoOffset), (Lval _ | Const _) ->
+        | (Var lhs, NoOffset), (Lval (Var _, NoOffset) | Const _) ->
             List.map
               (Transfer.assign (var_of_varinfo lhs) (var_of_exp rhs))
               prev_state
@@ -82,6 +85,30 @@ let doInstr (stmt : stmt) (instr : instr) (prev_state : SSL.t list) : SSL.t list
 (* `state` comes from doInstr, so it is actually the new state *)
 let computeFirstPredecessor _ state = state
 
+let entailment (lhs : SSL.t) (rhs : SSL.t) : bool =
+  let vars = extract_vars @@ get_atoms rhs in
+  let fresh_vars = List.filter is_fresh_var vars |> list_deduplicate in
+  let fresh_vars = List.map (fun var -> SSL.Var var) fresh_vars in
+  let quantified_rhs = SSL.mk_exists fresh_vars rhs in
+  Solver.check_entl !solver lhs quantified_rhs
+
+let join_states (old_state : SSL.t list) (new_state : SSL.t list) : SSL.t list =
+  let concat_state = new_state @ old_state in
+  let rec select_to_keep (to_keep : SSL.t list) (to_check : SSL.t list) :
+      SSL.t list =
+    match to_check with
+    | [] -> to_keep
+    | [ current ] when to_keep = [] -> [ current ]
+    | current :: rest ->
+        if entailment current (SSL.mk_or (to_keep @ rest)) then
+          (* `current` is already contained in the other formulas *)
+          select_to_keep to_keep rest
+        else
+          (* `current` has unique models, add it to `to_keep` *)
+          select_to_keep (current :: to_keep) rest
+  in
+  select_to_keep [] concat_state
+
 (* iterate over all formulas of new_state `phi`, and each one that doesn't satisfy
    (phi => old) has to be added to `old`. If old is not changed, None is returned. *)
 let combinePredecessors (stmt : stmt) ~old:(old_state : t) (new_state : t) :
@@ -94,29 +121,18 @@ let combinePredecessors (stmt : stmt) ~old:(old_state : t) (new_state : t) :
     print_endline "new state:";
     print_state new_state);
 
-  let new_components =
-    List.filter
-      (fun new_formula ->
-        let old_state = SSL.mk_or old_state in
-        let vars = extract_vars @@ get_atoms old_state in
-        let fresh_vars = List.filter is_fresh_var vars |> list_deduplicate in
-        let fresh_vars = List.map (fun var -> SSL.Var var) fresh_vars in
-        let quantified_old_state = SSL.mk_exists fresh_vars old_state in
-        not @@ Solver.check_entl !solver new_formula quantified_old_state)
-      new_state
-  in
-  if List.length new_components == 0 then (
+  let joined_state = join_states old_state new_state in
+  if entailment (SSL.mk_or joined_state) (SSL.mk_or old_state) then (
     if Debug_output.get () then (
-      print_endline "combined state is identical to old state";
+      print_endline "old state did not change";
       print_newline ());
     None)
-  else
-    let combined_state = new_components @ old_state in
+  else (
     if Debug_output.get () then (
-      print_endline "combined state:";
-      print_state combined_state;
+      print_endline "joined state:";
+      print_state joined_state;
       print_newline ());
-    Some combined_state
+    Some joined_state)
 
 (* we need to filter the formulas of `state` for each branch to only those,
    which are satisfiable in each of the branches *)
@@ -124,8 +140,7 @@ let doGuard (stmt : stmt) (exp : exp) (state : t) :
     t guardaction * t guardaction =
   if Debug_output.get () then (
     print_warn "doGuard";
-    print_stmt stmt;
-    print_newline ());
+    print_stmt stmt);
 
   let add_eq lhs rhs state =
     List.map
@@ -160,13 +175,23 @@ let doGuard (stmt : stmt) (exp : exp) (state : t) :
     (* all other conditions don't filter out any states *)
     | _ -> (state, state)
   in
-  (GUse th, GUse el)
+  let th = List.filter check_sat th in
+  let el = List.filter check_sat el in
+  print_endline "then:";
+  print_state th;
+  print_endline "else:";
+  print_state el;
+  print_newline ();
+  let th = if List.is_empty th then GUnreachable else GUse th in
+  let el = if List.is_empty el then GUnreachable else GUse el in
+  (th, el)
 
 (* we always want to continue with analysis *)
-let doStmt _ _ = SDefault
+let doStmt (_ : stmt) (_ : SSL.t list) : SSL.t list stmtaction = SDefault
 
 (* simplify formulas and filter out unsatisfiable ones *)
-let doEdge prev_stmt next_stmt state =
+let doEdge (prev_stmt : stmt) (next_stmt : stmt) (state : SSL.t list) :
+    SSL.t list =
   if Debug_output.get () then (
     print_warn "doEdge";
     print_endline "previous stmt:";
@@ -185,7 +210,7 @@ let doEdge prev_stmt next_stmt state =
 
   if Debug_output.get () then (
     print_endline "simplified state:";
-    print_state state;
+    print_state modified;
     print_newline ());
   modified
 
@@ -199,4 +224,22 @@ module StmtStartData = struct
   let add = Hashtbl.add !results
   let iter f = Hashtbl.iter f !results
   let length () = Hashtbl.length !results
+end
+
+module Tests = struct
+  open Testing
+
+  let%test_unit "join" =
+    let old = SSL.mk_star [ SSL.mk_pto x y' ] in
+    let old_state = [ old ] in
+    let new_state = [ SSL.mk_star [ SSL.mk_pto x z' ] ] in
+    let joined = List.nth (join_states old_state new_state) 0 in
+    assert_eq old joined
+
+  let%test_unit "join2" =
+    let old = SSL.mk_star [ SSL.mk_pto x y ] in
+    let old_state = [ old ] in
+    let new_state = [ SSL.mk_star [ SSL.mk_pto x z ] ] in
+    let joined = List.nth (join_states old_state new_state) 0 in
+    assert_eq old joined
 end

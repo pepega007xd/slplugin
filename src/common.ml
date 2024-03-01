@@ -5,6 +5,9 @@ let solver = ref (Solver.init ())
 let check_sat (formula : SSL.t) : bool = Solver.check_sat !solver formula
 let fail message = Self.fatal ~current:true message
 
+let mk_fresh_var (basename : string) : SSL.Variable.t =
+  SSL.Variable.mk_fresh basename Sort.loc_ls
+
 let is_fresh_var (var : SSL.Variable.t) : bool =
   let name, _ = var in
   String.contains name '!'

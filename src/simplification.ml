@@ -10,16 +10,28 @@ let extract_ptr (ptr : SSL.t) : SSL.Variable.t * SSL.Variable.t =
   | LS (Var src, Var dst) -> (src, dst)
   | _ -> fail "unreachable"
 
+let extract_vars_nondistinct (atoms : SSL.t list) : SSL.Variable.t list =
+  let atoms_nondistinct =
+    List.filter
+      (fun atom -> match atom with SSL.Distinct _ -> false | _ -> true)
+      atoms
+  in
+  extract_vars atoms_nondistinct
+
 let convert_to_ls (formula : SSL.t) : SSL.t =
   let atoms = get_atoms formula in
-  let vars = extract_vars atoms in
-  let is_unique_fresh var = is_fresh_var var && list_count vars var = 2 in
+  (* LS always has a (start != end) atom with it, we
+     don't want to count this second occurence the variables *)
+  let vars_nodistinct = extract_vars_nondistinct atoms in
+  let is_unique_fresh var =
+    is_fresh_var var && list_count vars_nodistinct var = 2
+  in
   let ptrs_to_fresh, rest =
     List.partition
       (fun (atom : SSL.t) ->
         match atom with
-        | PointsTo (Var src, LS_t dst) when is_unique_fresh dst -> true
-        | LS (Var src, Var dst) when is_unique_fresh dst -> true
+        | PointsTo (_, LS_t dst) when is_unique_fresh dst -> true
+        | LS (_, Var dst) when is_unique_fresh dst -> true
         | _ -> false)
       atoms
   in
@@ -27,8 +39,8 @@ let convert_to_ls (formula : SSL.t) : SSL.t =
     List.partition
       (fun (atom : SSL.t) ->
         match atom with
-        | PointsTo (Var src, LS_t dst) when is_unique_fresh src -> true
-        | LS (Var src, Var dst) when is_unique_fresh src -> true
+        | PointsTo (Var src, _) when is_unique_fresh src -> true
+        | LS (Var src, _) when is_unique_fresh src -> true
         | _ -> false)
       rest
   in

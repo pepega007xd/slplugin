@@ -1,5 +1,8 @@
-#include "stdio.h"
 #include "stdlib.h"
+
+// constructs a linked list using fallible malloc
+// list ends with NULL ptr
+
 int main() {
     void **nullptr = NULL;
     void **x = malloc(sizeof(void *));
@@ -12,7 +15,7 @@ int main() {
     void **temp = NULL;
 
     while (nondeterministic) {
-        temp = __safe_malloc(sizeof(void *));
+        temp = malloc(sizeof(void *));
 
         if (temp != nullptr) {
             *x = temp;
@@ -21,5 +24,7 @@ int main() {
             break;
         }
     }
+    *x = nullptr;
+
     return 0;
 }

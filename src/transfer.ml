@@ -2,9 +2,6 @@ open Astral
 open Common
 open Equiv_class
 
-let mk_fresh_var (basename : string) : SSL.Variable.t =
-  SSL.Variable.mk_fresh basename Sort.loc_ls
-
 let substitute_by_fresh (var : SSL.Variable.t) (formula : SSL.t) : SSL.t =
   let name, _ = var in
   SSL.substitute formula ~var ~by:(mk_fresh_var name)
@@ -17,23 +14,31 @@ let assign (lhs : SSL.Variable.t) (rhs : SSL.Variable.t) (prev_state : SSL.t) :
 
 (* transfer function for `a = *b;` *)
 let assign_rhs_deref (lhs : SSL.Variable.t) (rhs : SSL.Variable.t)
-    (prev_state : SSL.t) : SSL.t =
-  let _, dst = Option.get @@ find_pto prev_state rhs in
-  SSL.mk_star
-    [ SSL.mk_eq (Var lhs) (Var dst); substitute_by_fresh lhs prev_state ]
+    (prev_state : SSL.t) : SSL.t list =
+  let formulas = extract_target prev_state rhs in
+  List.map
+    (fun state ->
+      let _, dst, formula = state in
+      SSL.mk_star
+        [ SSL.mk_eq (Var lhs) (Var dst); substitute_by_fresh lhs formula ])
+    formulas
 
 (* transfer function for `*a = b;` *)
 let assign_lhs_deref (lhs : SSL.Variable.t) (rhs : SSL.Variable.t)
-    (prev_state : SSL.t) : SSL.t =
-  let src, dst = Option.get @@ find_pto prev_state lhs in
-  let atoms = get_atoms prev_state in
+    (prev_state : SSL.t) : SSL.t list =
+  let formulas = extract_target prev_state lhs in
   List.map
-    (fun atom ->
-      if atom = SSL.mk_pto (SSL.Var src) (SSL.Var dst) then
-        SSL.mk_pto (Var src) (Var rhs)
-      else atom)
-    atoms
-  |> SSL.mk_star
+    (fun state ->
+      let src, dst, formula = state in
+      let atoms = get_atoms formula in
+      List.map
+        (fun atom ->
+          if atom = SSL.mk_pto (SSL.Var src) (SSL.Var dst) then
+            SSL.mk_pto (Var src) (Var rhs)
+          else atom)
+        atoms
+      |> SSL.mk_star)
+    formulas
 
 (* transfer function for `a = malloc(...)` *)
 let call (lhs : SSL.Variable.t) (func_name : string) (formula : SSL.t) :
@@ -73,22 +78,24 @@ module Tests = struct
     (* *x = y; *)
     let result = assign_lhs_deref x_var y_var input in
     let expected = SSL.mk_star [ SSL.mk_pto x y ] in
-    assert_eq result expected
+    assert_eq_list result [ expected ]
 
   let%test_unit "assign_lhs_deref2" =
     let input = SSL.mk_star [ SSL.mk_pto x z; SSL.mk_pto z z' ] in
     (* *x = y; *)
     let result = assign_lhs_deref x_var y_var input in
     let expected = SSL.mk_star [ SSL.mk_pto x y; SSL.mk_pto z z' ] in
-    assert_eq result expected
+    assert_eq_list result [ expected ]
 
   let%test_unit "assign_rhs_deref" =
     let input = SSL.mk_star [ SSL.mk_pto x z; SSL.mk_pto y y' ] in
     (* x = *y; *)
-    let result = Simplifier.simplify @@ assign_rhs_deref x_var y_var input in
+    let result =
+      List.map Simplifier.simplify (assign_rhs_deref x_var y_var input)
+    in
     let expected =
       SSL.mk_star
         [ SSL.mk_pto (mk_var "x!1") z; SSL.mk_pto y y'; SSL.mk_eq x y' ]
     in
-    assert_eq result expected
+    assert_eq_list result [ expected ]
 end

@@ -28,15 +28,44 @@ let rec mk_equiv_class_rec (atoms : SSL.t list)
   | [] -> found_vars
   | new_vars -> mk_equiv_class_rec atoms (found_vars @ new_vars)
 
-(* accepts variable and formula, finds pto from equivalence class of variable,
-   returns both sides of pto atom *)
-let find_pto (formula : SSL.t) (var : SSL.Variable.t) :
-    (SSL.Variable.t * SSL.Variable.t) option =
-  (* flattens formula to single sep: (star a b c d ...) *)
-  let formula = Simplifier.simplify formula in
+let expose_pto (var : SSL.Variable.t) (formula : SSL.t) : SSL.t list =
   let atoms = get_atoms formula in
   let equiv_class = mk_equiv_class_rec atoms [ var ] in
-  let target_var_struct =
+  let new_atoms, rest =
+    List.partition_map
+      (fun atom ->
+        match atom with
+        | SSL.LS (Var src, Var dst) when list_contains equiv_class src ->
+            let new_fresh_var = mk_fresh_var "ls" in
+            Left
+              [
+                (* ls was a simple pto *)
+                SSL.mk_pto (Var src) (Var dst);
+                (* ls was at least length 2 *)
+                SSL.mk_star
+                  [
+                    SSL.mk_pto (Var src) (Var new_fresh_var);
+                    SSL.mk_ls (Var new_fresh_var) (Var dst);
+                    SSL.mk_distinct (Var new_fresh_var) (Var dst);
+                  ];
+              ]
+        | SSL.PointsTo (Var src, _) when list_contains equiv_class src ->
+            Left [ atom ]
+        | other -> Right other)
+      atoms
+  in
+  let new_atoms = List.flatten new_atoms in
+  List.map
+    (fun atom -> SSL.mk_star (atom :: rest) |> Simplifier.simplify)
+    new_atoms
+
+(* accepts variable and formula, finds pto from equivalence class of variable,
+   returns both sides of pto atom *)
+let extract_target_single (formula : SSL.t) (var : SSL.Variable.t) :
+    SSL.Variable.t * SSL.Variable.t =
+  let atoms = get_atoms formula in
+  let equiv_class = mk_equiv_class_rec atoms [ var ] in
+  let src, dst =
     List.find_map
       (fun atom ->
         match atom with
@@ -44,8 +73,15 @@ let find_pto (formula : SSL.t) (var : SSL.Variable.t) :
             Some (src, dst)
         | _ -> None)
       atoms
+    |> Option.get
   in
-  match target_var_struct with
-  | Some (src, dst) -> Some (src, dst)
-  | None ->
-      fail "did not find any points-to target in `get_pto` (maybe it's ls?)"
+  (src, dst)
+
+let extract_target (formula : SSL.t) (var : SSL.Variable.t) :
+    (SSL.Variable.t * SSL.Variable.t * SSL.t) list =
+  let formulas = expose_pto var formula in
+  List.map
+    (fun formula ->
+      let src, dst = extract_target_single formula var in
+      (src, dst, formula))
+    formulas

@@ -1,5 +1,6 @@
 open Cil_types
-open Common
+
+(* open Common *)
 open Astral
 
 let eprint_string (s : string) = Printf.eprintf "%s" s
@@ -62,13 +63,18 @@ let z' = mk_var "z!"
 let nil = SSL.mk_nil ()
 let print (formula : SSL.t) = print_warn @@ SSL.show formula
 
+let assert_eq_list (lhs : SSL.t list) (rhs : SSL.t list) =
+  let lhs = List.sort SSL.compare lhs in
+  let rhs = List.sort SSL.compare rhs in
+  if not @@ List.equal SSL.( === ) lhs rhs then (
+    print_warn "lhs:";
+    List.iter print lhs;
+    print_warn "rhs:";
+    List.iter print rhs;
+    assert false)
+
 let assert_eq (lhs : SSL.t) (rhs : SSL.t) =
-  let lhs_atoms = List.sort SSL.compare @@ get_atoms lhs in
-  let rhs_atoms = List.sort SSL.compare @@ get_atoms rhs in
-  if not (List.equal SSL.equal lhs_atoms rhs_atoms) then (
+  if not (SSL.( === ) lhs rhs) then (
     print lhs;
     print rhs;
     assert false)
-
-(*TODO: get this working *)
-(* let%test_unit "aaaa" = [%test_eq: SSL.t] SSL.Emp SSL.Emp *)
