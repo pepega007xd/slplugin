@@ -33,6 +33,13 @@ let print_state (state : SSL.t list) =
   |> String.concat ("\n" ^ space)
   |> eprint_endline
 
+let print_state_raw (state : SSL.t list) =
+  let space = "    " in
+  eprint_string space;
+  List.map (fun f -> SSL.show f) state
+  |> String.concat ("\n" ^ space)
+  |> eprint_endline
+
 let print_result (result : (stmt, SSL.t list) Hashtbl.t) =
   print_warn "Analysis results:";
   Hashtbl.to_seq result |> List.of_seq

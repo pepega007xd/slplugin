@@ -90,7 +90,18 @@ let entailment (lhs : SSL.t) (rhs : SSL.t) : bool =
   let fresh_vars = List.filter is_fresh_var vars |> list_deduplicate in
   let fresh_vars = List.map (fun var -> SSL.Var var) fresh_vars in
   let quantified_rhs = SSL.mk_exists fresh_vars rhs in
-  Solver.check_entl !solver lhs quantified_rhs
+  Testing.print_warn "";
+  Testing.print_warn "checking entailment of:";
+  Testing.print_state_raw [ lhs ];
+  Testing.print_warn "to:";
+  Testing.print_state_raw [ quantified_rhs ];
+  let testsolver = Solver.init () in
+  if Solver.check_entl testsolver lhs quantified_rhs then (
+    Testing.print_warn "Result: true";
+    true)
+  else (
+    Testing.print_warn "Result: false";
+    false)
 
 let join_states (old_state : SSL.t list) (new_state : SSL.t list) : SSL.t list =
   let concat_state = new_state @ old_state in
@@ -122,8 +133,11 @@ let combinePredecessors (stmt : stmt) ~old:(old_state : t) (new_state : t) :
     print_state new_state);
 
   let joined_state = join_states old_state new_state in
+
   if entailment (SSL.mk_or joined_state) (SSL.mk_or old_state) then (
     if Debug_output.get () then (
+      print_endline "joined state:";
+      print_state joined_state;
       print_endline "old state did not change";
       print_newline ());
     None)
@@ -177,11 +191,14 @@ let doGuard (stmt : stmt) (exp : exp) (state : t) :
   in
   let th = List.filter check_sat th in
   let el = List.filter check_sat el in
-  print_endline "then:";
-  print_state th;
-  print_endline "else:";
-  print_state el;
-  print_newline ();
+
+  if Debug_output.get () then (
+    print_endline "then:";
+    print_state th;
+    print_endline "else:";
+    print_state el;
+    print_newline ());
+
   let th = if List.is_empty th then GUnreachable else GUse th in
   let el = if List.is_empty el then GUnreachable else GUse el in
   (th, el)
@@ -205,6 +222,7 @@ let doEdge (prev_stmt : stmt) (next_stmt : stmt) (state : SSL.t list) :
   let modified =
     List.map Simplifier.simplify state
     |> List.filter check_sat |> List.map remove_junk |> List.map remove_nil_vars
+    |> List.map reduce_equiv_classes
     |> List.map convert_to_ls
   in
 
@@ -229,17 +247,69 @@ end
 module Tests = struct
   open Testing
 
-  let%test_unit "join" =
-    let old = SSL.mk_star [ SSL.mk_pto x y' ] in
-    let old_state = [ old ] in
-    let new_state = [ SSL.mk_star [ SSL.mk_pto x z' ] ] in
-    let joined = List.nth (join_states old_state new_state) 0 in
-    assert_eq old joined
+  let changed joined_state old_state =
+    not @@ entailment (SSL.mk_or joined_state) (SSL.mk_or old_state)
 
-  let%test_unit "join2" =
-    let old = SSL.mk_star [ SSL.mk_pto x y ] in
-    let old_state = [ old ] in
+  let%test_unit "join" =
+    let old_state = [ SSL.mk_star [ SSL.mk_pto x y' ] ] in
+    let new_state = [ SSL.mk_star [ SSL.mk_pto x z' ] ] in
+    let joined = join_states old_state new_state in
+    assert_eq_list old_state joined
+
+  let%test_unit "join" =
+    let old_state = [ SSL.mk_star [ SSL.mk_pto x y ] ] in
     let new_state = [ SSL.mk_star [ SSL.mk_pto x z ] ] in
-    let joined = List.nth (join_states old_state new_state) 0 in
-    assert_eq old joined
+    let joined = join_states old_state new_state in
+    assert_eq_list (old_state @ new_state) joined
+
+  let%test_unit "join_ls" =
+    let old_state = [ SSL.mk_star [ SSL.mk_pto x y ] ] in
+    let new_state = [ SSL.mk_star [ SSL.mk_ls x y; SSL.mk_distinct x y ] ] in
+    let joined = join_states old_state new_state in
+    assert_eq_list (old_state @ new_state) joined;
+    assert (changed joined old_state)
+
+  let%test_unit "entailment" =
+    let old_state = SSL.mk_star [ SSL.mk_ls x y; SSL.mk_distinct x y ] in
+    let new_state = SSL.mk_star [ SSL.mk_pto x' y'; SSL.mk_pto y' z' ] in
+    assert (not @@ entailment old_state new_state)
+
+  let%test_unit "entailment" =
+    let start = mk_var "start" in
+    let temp = mk_var "temp" in
+    let alloc0 = mk_var "alloc!0" in
+    let alloc1 = mk_var "alloc!1" in
+    let alloc3 = mk_var "alloc!3" in
+    let nullptr = mk_var "nullptr" in
+
+    let old_state =
+      SSL.mk_star
+        [
+          SSL.mk_eq nullptr nil;
+          SSL.mk_pto temp alloc3;
+          SSL.mk_eq x temp;
+          SSL.mk_ls start temp;
+          SSL.mk_distinct start temp;
+        ]
+    in
+    let new_state =
+      SSL.mk_or
+        [
+          SSL.mk_star
+            [
+              SSL.mk_eq start x;
+              SSL.mk_pto x alloc0;
+              SSL.mk_eq nullptr nil;
+              SSL.mk_eq temp nil;
+            ];
+          SSL.mk_star
+            [
+              SSL.mk_pto start temp;
+              SSL.mk_eq nullptr nil;
+              SSL.mk_pto temp alloc1;
+              SSL.mk_eq x temp;
+            ];
+        ]
+    in
+    assert (not @@ entailment old_state new_state)
 end
