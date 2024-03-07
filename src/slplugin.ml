@@ -33,6 +33,7 @@ let run () =
 
   ForwardsAnalysis.compute [ first_stmt ];
 
-  Printing.print_result !results
+  Printing.print_result !results;
+  Solver.dump_stats !Common.solver
 
 let () = Db.Main.extend run
