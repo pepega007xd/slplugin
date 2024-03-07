@@ -118,22 +118,51 @@ let reduce_equiv_classes (formula : SSL.t) : SSL.t =
   let reduced_atoms = get_atoms reduced in
   SSL.mk_star @@ remove_identities reduced_atoms
 
+let remove_distinct_only (formula : SSL.t) : SSL.t =
+  let atoms = get_atoms formula in
+  let vars = extract_vars atoms in
+  let fresh_vars = List.filter is_fresh_var vars in
+  let distinct_only (var : SSL.Variable.t) : bool =
+    List.for_all
+      (fun atom ->
+        match atom with
+        | SSL.Distinct _ -> true
+        | _ when list_contains (extract_vars [ atom ]) var -> false
+        | _ -> true)
+      atoms
+  in
+  List.filter
+    (fun atom ->
+      match atom with
+      | SSL.Distinct [ Var lhs; _ ]
+        when list_contains fresh_vars lhs && distinct_only lhs ->
+          false
+      | SSL.Distinct [ _; Var rhs ]
+        when list_contains fresh_vars rhs && distinct_only rhs ->
+          false
+      | _ -> true)
+    atoms
+  |> SSL.mk_star
+
 (* removes all atoms of the form (x' -> y), where x' doesn't appear anywhere else *)
 let remove_junk (formula : SSL.t) : SSL.t =
   let atoms = get_atoms formula in
   let vars = extract_vars atoms in
+  let vars_nodistinct = extract_vars_nondistinct atoms in
   let valid_atoms, junk_atoms =
     List.partition
       (fun atom ->
         match atom with
-        | SSL.Eq [ Var src; Var dst ] ->
-            (* filters out atoms (fresh = x), where fresh occurs only once in the formula *)
+        | SSL.Eq [ Var lhs; Var rhs ] | SSL.Distinct [ Var lhs; Var rhs ] ->
+            (* filters out atoms (fresh = x) and (fresh != x), where fresh occurs only once in the formula *)
             not
-              ((list_count vars src = 1 && is_fresh_var src)
-              || (list_count vars dst = 1 && is_fresh_var dst))
+              ((list_count vars lhs = 1 && is_fresh_var lhs)
+              || (list_count vars rhs = 1 && is_fresh_var rhs))
         | SSL.PointsTo (Var src, LS_t dst) ->
             (* filters out atoms (fresh -> x), where fresh occurs only once in formula *)
-            let is_alone = is_fresh_var src && list_count vars src = 1 in
+            let is_alone =
+              is_fresh_var src && list_count vars_nodistinct src = 1
+            in
 
             (* filters out atoms (fresh1 -> fresh2) and (fresh2 -> fresh1), if this is their only
                occurence in the formula *)
@@ -142,6 +171,13 @@ let remove_junk (formula : SSL.t) : SSL.t =
               && list_contains atoms (SSL.mk_pto (Var dst) (Var src))
             in
             (not @@ is_alone) || is_cycle
+        | SSL.LS (Var src, Var _) ->
+            (* filters out atoms ls(fresh, x), where fresh occurs only once in formula *)
+            let is_alone =
+              is_fresh_var src && list_count vars_nodistinct src = 1
+            in
+
+            not @@ is_alone
         | _ -> true)
       atoms
   in

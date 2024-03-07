@@ -90,18 +90,8 @@ let entailment (lhs : SSL.t) (rhs : SSL.t) : bool =
   let fresh_vars = List.filter is_fresh_var vars |> list_deduplicate in
   let fresh_vars = List.map (fun var -> SSL.Var var) fresh_vars in
   let quantified_rhs = SSL.mk_exists fresh_vars rhs in
-  Testing.print_warn "";
-  Testing.print_warn "checking entailment of:";
-  Testing.print_state_raw [ lhs ];
-  Testing.print_warn "to:";
-  Testing.print_state_raw [ quantified_rhs ];
   let testsolver = Solver.init () in
-  if Solver.check_entl testsolver lhs quantified_rhs then (
-    Testing.print_warn "Result: true";
-    true)
-  else (
-    Testing.print_warn "Result: false";
-    false)
+  Solver.check_entl testsolver lhs quantified_rhs
 
 let join_states (old_state : SSL.t list) (new_state : SSL.t list) : SSL.t list =
   let concat_state = new_state @ old_state in
@@ -223,6 +213,7 @@ let doEdge (prev_stmt : stmt) (next_stmt : stmt) (state : SSL.t list) :
     List.map Simplifier.simplify state
     |> List.filter check_sat |> List.map remove_junk |> List.map remove_nil_vars
     |> List.map reduce_equiv_classes
+    |> List.map remove_distinct_only
     |> List.map convert_to_ls
   in
 

@@ -34,9 +34,8 @@ let list_count (list : 'a List.t) (elem : 'a) : int =
 let rec list_deduplicate (lst : 'a list) : 'a list =
   match lst with
   | [] -> []
-  | first :: rest ->
-      if list_contains rest first then list_deduplicate rest
-      else first :: list_deduplicate rest
+  | first :: rest when list_contains rest first -> list_deduplicate rest
+  | first :: rest -> first :: list_deduplicate rest
 
 let extract_vars (atoms : SSL.t list) : SSL.Variable.t list =
   List.map
