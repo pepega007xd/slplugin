@@ -91,7 +91,10 @@ let entailment (lhs : SSL.t) (rhs : SSL.t) : bool =
   let fresh_vars = List.map (fun var -> SSL.Var var) fresh_vars in
   let quantified_rhs = SSL.mk_exists fresh_vars rhs in
   let testsolver = Solver.init () in
-  Solver.check_entl testsolver lhs quantified_rhs
+  let start = Sys.time () in
+  let result = Solver.check_entl testsolver lhs quantified_rhs in
+  Common.solver_time := !Common.solver_time +. Sys.time () -. start;
+  result
 
 let join_states (old_state : SSL.t list) (new_state : SSL.t list) : SSL.t list =
   let concat_state = new_state @ old_state in

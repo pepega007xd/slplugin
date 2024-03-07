@@ -2,7 +2,14 @@ open Astral
 open Slplugin_options
 
 let solver = ref (Solver.init ())
-let check_sat (formula : SSL.t) : bool = Solver.check_sat !solver formula
+let solver_time = ref 0.0
+
+let check_sat (formula : SSL.t) : bool =
+  let start = Sys.time () in
+  let result = Solver.check_sat !solver formula in
+  solver_time := !solver_time +. Sys.time () -. start;
+  result
+
 let fail message = Self.fatal ~current:true message
 
 let mk_fresh_var (basename : string) : SSL.Variable.t =

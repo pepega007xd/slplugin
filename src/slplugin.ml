@@ -34,6 +34,8 @@ let run () =
   ForwardsAnalysis.compute [ first_stmt ];
 
   Printing.print_result !results;
-  Solver.dump_stats !Common.solver
+  Solver.dump_stats !Common.solver;
+  if Slplugin_options.Debug_output.get () then
+    Format.printf "Astral took %.2f seconds\n" !Common.solver_time
 
 let () = Db.Main.extend run
