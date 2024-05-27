@@ -96,8 +96,7 @@ let entailment (lhs : SSL.t) (rhs : SSL.t) : bool =
   Common.solver_time := !Common.solver_time +. Sys.time () -. start;
   result
 
-let join_states (old_state : SSL.t list) (new_state : SSL.t list) : SSL.t list =
-  let concat_state = new_state @ old_state in
+let deduplicate_states (state : SSL.t list) : SSL.t list =
   let rec select_to_keep (to_keep : SSL.t list) (to_check : SSL.t list) :
       SSL.t list =
     match to_check with
@@ -111,7 +110,7 @@ let join_states (old_state : SSL.t list) (new_state : SSL.t list) : SSL.t list =
           (* `current` has unique models, add it to `to_keep` *)
           select_to_keep (current :: to_keep) rest
   in
-  select_to_keep [] concat_state
+  select_to_keep [] state
 
 (* iterate over all formulas of new_state `phi`, and each one that doesn't satisfy
    (phi => old) has to be added to `old`. If old is not changed, None is returned. *)
@@ -125,7 +124,7 @@ let combinePredecessors (stmt : stmt) ~old:(old_state : t) (new_state : t) :
     print_endline "new state:";
     print_state new_state);
 
-  let joined_state = join_states old_state new_state in
+  let joined_state = deduplicate_states @@ old_state @ new_state in
 
   if entailment (SSL.mk_or joined_state) (SSL.mk_or old_state) then (
     if Debug_output.get () then (
@@ -217,7 +216,7 @@ let doEdge (prev_stmt : stmt) (next_stmt : stmt) (state : SSL.t list) :
     |> List.filter check_sat |> List.map remove_junk |> List.map remove_nil_vars
     |> List.map reduce_equiv_classes
     |> List.map remove_distinct_only
-    |> List.map convert_to_ls
+    |> List.map convert_to_ls |> deduplicate_states
   in
 
   if Debug_output.get () then (
@@ -247,19 +246,19 @@ module Tests = struct
   let%test_unit "join" =
     let old_state = [ SSL.mk_star [ SSL.mk_pto x y' ] ] in
     let new_state = [ SSL.mk_star [ SSL.mk_pto x z' ] ] in
-    let joined = join_states old_state new_state in
+    let joined = deduplicate_states @@ old_state @ new_state in
     assert_eq_list old_state joined
 
   let%test_unit "join" =
     let old_state = [ SSL.mk_star [ SSL.mk_pto x y ] ] in
     let new_state = [ SSL.mk_star [ SSL.mk_pto x z ] ] in
-    let joined = join_states old_state new_state in
+    let joined = deduplicate_states @@ old_state @ new_state in
     assert_eq_list (old_state @ new_state) joined
 
   let%test_unit "join_ls" =
     let old_state = [ SSL.mk_star [ SSL.mk_pto x y ] ] in
     let new_state = [ SSL.mk_star [ SSL.mk_ls x y; SSL.mk_distinct x y ] ] in
-    let joined = join_states old_state new_state in
+    let joined = deduplicate_states @@ old_state @ new_state in
     assert_eq_list (old_state @ new_state) joined;
     assert (changed joined old_state)
 
