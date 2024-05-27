@@ -38,4 +38,6 @@ let run () =
   if Slplugin_options.Debug_output.get () then
     Format.printf "Astral took %.2f seconds\n" !Common.solver_time
 
-let () = Db.Main.extend run
+let () =
+  Db.Main.extend (fun () ->
+      if Slplugin_options.Enable_analysis.get () then run ())

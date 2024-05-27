@@ -4,6 +4,11 @@ module Self = Plugin.Register (struct
   let help = ""
 end)
 
+module Enable_analysis = Self.False (struct
+  let option_name = "-slplugin"
+  let help = "Run analysis"
+end)
+
 module Dump_queries = Self.False (struct
   let option_name = "-sl-dump-queries"
   let help = "Dump Astral queries to 'astral_queries' directory."

@@ -5,6 +5,7 @@
         ; turn errors into warnings
         -warn-error -26 ; Unused var
         -warn-error -27 ; Unused var strict
+        -warn-error -33 ; Unused module open
         -g
       )
     )
@@ -15,7 +16,7 @@
   (name slplugin)
   (public_name frama-c-slplugin.core)
   (flags -open Frama_c_kernel :standard)
-  (libraries frama-c.kernel astral)
+  (libraries frama-c.kernel frama-c-server.core astral)
   (inline_tests 
     ; this is required to run inline tests in frama-c plugin
     ; https://git.frama-c.com/pub/frama-c/-/issues/2691
