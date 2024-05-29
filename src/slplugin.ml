@@ -1,6 +1,7 @@
 open Dataflow2
 open Astral
 open Analysis
+open Common
 module ForwardsAnalysis = Forwards (Analysis)
 
 let run () =

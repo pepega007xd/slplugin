@@ -120,8 +120,6 @@ let reduce_equiv_classes (formula : SSL.t) : SSL.t =
 
 let remove_distinct_only (formula : SSL.t) : SSL.t =
   let atoms = get_atoms formula in
-  let vars = extract_vars atoms in
-  let fresh_vars = List.filter is_fresh_var vars in
   let distinct_only (var : SSL.Variable.t) : bool =
     List.for_all
       (fun atom ->
@@ -134,11 +132,11 @@ let remove_distinct_only (formula : SSL.t) : SSL.t =
   List.filter
     (fun atom ->
       match atom with
-      | SSL.Distinct [ Var lhs; _ ]
-        when list_contains fresh_vars lhs && distinct_only lhs ->
+      | SSL.Distinct [ Var lhs; _ ] when is_fresh_var lhs && distinct_only lhs
+        ->
           false
-      | SSL.Distinct [ _; Var rhs ]
-        when list_contains fresh_vars rhs && distinct_only rhs ->
+      | SSL.Distinct [ _; Var rhs ] when is_fresh_var rhs && distinct_only rhs
+        ->
           false
       | _ -> true)
     atoms
@@ -207,6 +205,14 @@ let remove_nil_vars (formula : SSL.t) : SSL.t =
   List.fold_left
     (fun formula var -> SSL.substitute ~var ~by:SSL.Variable.nil formula)
     formula nil_fresh_vars
+
+let convert_vars_to_fresh (var_names : string list) (formula : SSL.t) : SSL.t =
+  List.fold_left
+    (fun formula var_name ->
+      SSL.substitute formula
+        ~var:(SSL.Variable.mk var_name Sort.loc_ls)
+        ~by:(mk_fresh_var var_name))
+    formula var_names
 
 module Tests = struct
   open Testing

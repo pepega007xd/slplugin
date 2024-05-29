@@ -1,8 +1,16 @@
 open Astral
 open Slplugin_options
 
+let results : (Cil_types.stmt, SSL.t list) Hashtbl.t ref =
+  ref (Hashtbl.create 113)
+
 let solver = ref (Solver.init ())
 let solver_time = ref 0.0
+
+module StringSet = Set.Make (String)
+
+let local_vars_for_stmt : (Cil_types.stmt, StringSet.t) Hashtbl.t ref =
+  ref @@ Hashtbl.create 113
 
 let check_sat (formula : SSL.t) : bool =
   let start = Sys.time () in

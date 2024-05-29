@@ -1,15 +1,18 @@
 open Astral
 open Cil_types
 
+let print_control (s : string) =
+  if Out_channel.isatty Out_channel.stdout then print_string s
+
 let print_warn (msg : string) =
-  print_string "\x1b[31;1m";
+  print_control "\x1b[31;1m";
   print_string msg;
   print_char '\n';
-  print_string "\x1b[0m"
+  print_control "\x1b[0m"
 
 let print_stmt (stmt : Cil_types.stmt) =
   (* print in yellow color *)
-  print_string "\x1b[33m";
+  print_control "\x1b[33m";
 
   let stmt = Format.asprintf "%a" Cil_datatype.Stmt.pretty stmt in
   (String.split_on_char '\n' stmt |> function
@@ -18,7 +21,7 @@ let print_stmt (stmt : Cil_types.stmt) =
    | [ a; b ] -> print_endline (a ^ "\n" ^ b)
    | a :: b :: _ -> print_endline (a ^ "\n" ^ b ^ "\n" ^ "..."));
 
-  print_string "\x1b[0m"
+  print_control "\x1b[0m"
 
 let print_state (state : SSL.t list) =
   if List.is_empty state then print_endline "<empty state>"

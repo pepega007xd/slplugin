@@ -3,8 +3,7 @@ let format_stmt (fmt : Format.formatter) (loc : Printer_tag.localizable) : unit
   let result =
     match loc with
     | Printer_tag.PStmtStart (_, stmt) ->
-        Option.to_list @@ Hashtbl.find_opt !Analysis.results stmt
-        |> List.flatten
+        Option.to_list @@ Hashtbl.find_opt !Common.results stmt |> List.flatten
     | _ -> []
   in
   let result_string =
@@ -15,5 +14,6 @@ let format_stmt (fmt : Format.formatter) (loc : Printer_tag.localizable) : unit
   ignore @@ Format.pp_print_string fmt result_string
 
 let () =
-  Server.Kernel_ast.Information.register ~id:"slplugin" ~label:"test"
-    ~title:"title string" ~descr:"desc string" format_stmt
+  Server.Kernel_ast.Information.register ~id:"slplugin.stmt_state"
+    ~label:"state" ~title:"final state"
+    ~descr:"final state reached for this statement" format_stmt

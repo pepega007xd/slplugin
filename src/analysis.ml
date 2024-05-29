@@ -5,7 +5,6 @@ open Printing
 open Common
 open Dataflow2
 
-let results : (stmt, SSL.t list) Hashtbl.t ref = ref (Hashtbl.create 1024)
 let name = "slplugin"
 let debug = false
 
@@ -210,13 +209,21 @@ let doEdge (prev_stmt : stmt) (next_stmt : stmt) (state : SSL.t list) :
     print_endline "original state:";
     print_state state);
 
+  let prev_locals = Hashtbl.find !local_vars_for_stmt prev_stmt in
+  let new_locals = Hashtbl.find !local_vars_for_stmt next_stmt in
+  let end_of_scope_locals =
+    StringSet.diff prev_locals new_locals |> StringSet.to_list
+  in
+
   let open Simplification in
   let modified =
     List.map Simplifier.simplify state
+    |> List.map (convert_vars_to_fresh end_of_scope_locals)
     |> List.filter check_sat |> List.map remove_junk |> List.map remove_nil_vars
     |> List.map reduce_equiv_classes
+    |> List.map convert_to_ls
     |> List.map remove_distinct_only
-    |> List.map convert_to_ls |> deduplicate_states
+    |> deduplicate_states
   in
 
   if Debug_output.get () then (

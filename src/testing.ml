@@ -7,15 +7,18 @@ let eprint_string (s : string) = Printf.eprintf "%s" s
 let eprint_endline (s : string) = Printf.eprintf "%s\n" s
 let eprint_char (c : char) = Printf.eprintf "%c" c
 
+let eprint_control (s : string) =
+  if Out_channel.isatty Out_channel.stderr then print_string s
+
 let print_warn (msg : string) =
-  eprint_string "\x1b[31;1m";
+  eprint_control "\x1b[31;1m";
   eprint_string msg;
   eprint_char '\n';
-  eprint_string "\x1b[0m"
+  eprint_control "\x1b[0m"
 
 let print_stmt (stmt : Cil_types.stmt) =
   (* print in yellow color *)
-  eprint_string "\x1b[33m";
+  eprint_control "\x1b[33m";
 
   let stmt = Format.asprintf "%a" Cil_datatype.Stmt.pretty stmt in
   (String.split_on_char '\n' stmt |> function
@@ -24,7 +27,7 @@ let print_stmt (stmt : Cil_types.stmt) =
    | [ a; b ] -> eprint_endline (a ^ "\n" ^ b)
    | a :: b :: _ -> eprint_endline (a ^ "\n" ^ b ^ "\n" ^ "..."));
 
-  eprint_string "\x1b[0m"
+  eprint_control "\x1b[0m"
 
 let print_state (state : SSL.t list) =
   let space = "    " in

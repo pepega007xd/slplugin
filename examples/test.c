@@ -4,9 +4,11 @@
 int main() {
     int a = 5;
     int *x = NULL;
+    int *y = NULL;
+
     // int *nullptr = NULL;
     // int *y = malloc(sizeof(int));
-    while (1) {
+    while (x == NULL) {
         x = malloc(sizeof(int));
     }
     //
