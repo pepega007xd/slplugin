@@ -9,6 +9,9 @@ let solver_time = ref 0.0
 
 module StringSet = Set.Make (String)
 
+let var_of_varinfo (varinfo : Cil_types.varinfo) : SSL.Variable.t =
+  SSL.Variable.mk varinfo.vname Sort.loc_ls
+
 let local_vars_for_stmt : (Cil_types.stmt, StringSet.t) Hashtbl.t ref =
   ref @@ Hashtbl.create 113
 

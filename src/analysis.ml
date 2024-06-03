@@ -13,9 +13,6 @@ type t = SSL.t list
 let copy state = state
 let pretty fmt state = List.iter (SSL.pp fmt) state
 
-let var_of_varinfo (varinfo : varinfo) : SSL.Variable.t =
-  SSL.Variable.mk varinfo.vname Sort.loc_ls
-
 let var_of_exp (exp : exp) : SSL.Variable.t =
   match exp.enode with
   | Lval (Var varinfo, NoOffset) -> var_of_varinfo varinfo
@@ -40,8 +37,9 @@ let doInstr (stmt : stmt) (instr : instr) (prev_state : SSL.t list) : SSL.t list
         match rhs with
         | AssignInit (SingleInit rhs) ->
             List.map (Transfer.assign lhs (var_of_exp rhs)) prev_state
-        | ConsInit (fn, _, _) ->
-            List.map (Transfer.call lhs fn.vname) prev_state |> List.flatten
+        | ConsInit (fn, params, _) ->
+            List.map (Transfer.call (Some lhs) fn params) prev_state
+            |> List.flatten
         | _ -> fail "unimplemented Local_init")
     | Set (lhs, rhs, _) -> (
         match (lhs, rhs.enode) with
@@ -66,13 +64,19 @@ let doInstr (stmt : stmt) (instr : instr) (prev_state : SSL.t list) : SSL.t list
               (Transfer.assign (var_of_varinfo lhs) (var_of_exp rhs))
               prev_state
         | _ -> fail "unimplemented Set")
-    | Call (lhs_opt, func, _, _) -> (
+    | Call (lhs_opt, func, params, _) -> (
         match (lhs_opt, func.enode) with
-        (* a = func() *)
+        (* a = func(); *)
         | Some (Var lhs, NoOffset), Lval (Var func, NoOffset) ->
-            List.map (Transfer.call (var_of_varinfo lhs) func.vname) prev_state
+            List.map
+              (Transfer.call (Some (var_of_varinfo lhs)) func params)
+              prev_state
             |> List.flatten
+        (* func(); *)
+        | None, Lval (Var func, NoOffset) ->
+            List.map (Transfer.call None func params) prev_state |> List.flatten
         | _ -> fail "unimplemented Call")
+    | Skip _ -> prev_state
     | _ -> fail "other unimplemented Instr"
   in
   if Debug_output.get () then (

@@ -28,6 +28,8 @@ let rec mk_equiv_class_rec (atoms : SSL.t list)
   | [] -> found_vars
   | new_vars -> mk_equiv_class_rec atoms (found_vars @ new_vars)
 
+(* transforms `formmula` so that `var` or its alias is a part of a points-to atom, not a list segment,
+   multiple formauls can be produced, representing different lengths of `ls` (1, 2+) *)
 let expose_pto (var : SSL.Variable.t) (formula : SSL.t) : SSL.t list =
   let atoms = get_atoms formula in
   let equiv_class = mk_equiv_class_rec atoms [ var ] in
@@ -60,7 +62,7 @@ let expose_pto (var : SSL.Variable.t) (formula : SSL.t) : SSL.t list =
     new_atoms
 
 (* accepts variable and formula, finds pto from equivalence class of variable,
-   returns both sides of pto atom *)
+   returns both sides of points-to atom *)
 let extract_target_single (formula : SSL.t) (var : SSL.Variable.t) :
     SSL.Variable.t * SSL.Variable.t =
   let atoms = get_atoms formula in
@@ -73,10 +75,12 @@ let extract_target_single (formula : SSL.t) (var : SSL.Variable.t) :
             Some (src, dst)
         | _ -> None)
       atoms
-    |> Option.get
+    |> Option.get (* TODO print a sensible error message *)
   in
   (src, dst)
 
+(* accepts variable and formula, returns both sides of pto atom
+   where `var` is the lhs of the points-to atom *)
 let extract_target (formula : SSL.t) (var : SSL.Variable.t) :
     (SSL.Variable.t * SSL.Variable.t * SSL.t) list =
   let formulas = expose_pto var formula in

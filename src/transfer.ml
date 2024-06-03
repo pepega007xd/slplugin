@@ -40,25 +40,49 @@ let assign_lhs_deref (lhs : SSL.Variable.t) (rhs : SSL.Variable.t)
       |> SSL.mk_star)
     formulas
 
-(* transfer function for `a = malloc(...)` *)
-let call (lhs : SSL.Variable.t) (func_name : string) (formula : SSL.t) :
-    SSL.t list =
-  let formula = substitute_by_fresh lhs formula in
-  (*TODO implement free *)
-  match func_name with
-  | "malloc" ->
+let transfer_function_free (formula : SSL.t) (var : SSL.Variable.t) : SSL.t list
+    =
+  let targets = extract_target formula var in
+  List.map
+    (fun target ->
+      let lhs, rhs, formula = target in
+      let atoms = get_atoms formula in
+      let pto_to_remove = SSL.mk_pto (SSL.Var lhs) (SSL.Var rhs) in
+      let output = List.filter (( <> ) pto_to_remove) atoms |> SSL.mk_star in
+      output)
+    targets
+
+(* transfer function for function calls *)
+let call (lhs : SSL.Variable.t option) (func : Cil_types.varinfo)
+    (params : Cil_types.exp list) (formula : SSL.t) : SSL.t list =
+  let open Cil_types in
+  let formula =
+    match lhs with
+    | Some lhs -> substitute_by_fresh lhs formula
+    | None -> formula
+  in
+
+  match (func.vname, params) with
+  | "malloc", _ ->
+      let lhs = Option.value lhs ~default:(mk_fresh_var "leak") in
       [
         SSL.mk_star
           [ SSL.mk_pto (Var lhs) @@ Var (mk_fresh_var "alloc"); formula ];
         SSL.mk_star [ SSL.mk_eq (Var lhs) @@ SSL.mk_nil (); formula ];
       ]
-  | "__safe_malloc" ->
+  | "__safe_malloc", _ ->
       (* malloc that always succeeds - for simpler experimenting *)
+      let lhs = Option.value lhs ~default:(mk_fresh_var "leak") in
       [
         SSL.mk_star
           [ SSL.mk_pto (Var lhs) @@ Var (mk_fresh_var "alloc"); formula ];
       ]
-  | _ -> fail "mk_call: function calls are not implemented"
+  | "free", [ first ] -> (
+      match first.enode with
+      | Lval (Var ptr, NoOffset) ->
+          transfer_function_free formula (Common.var_of_varinfo ptr)
+      | _ -> fail "invalid argument of free")
+  | _ -> fail "call: function calls are not implemented"
 
 module Tests = struct
   open Testing

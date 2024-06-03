@@ -66,11 +66,28 @@ class insert_nullptr_variable =
       | _ -> DoChildren
   end
 
-let is_next_field (fieldinfo : fieldinfo) : bool =
-  let this_struct = fieldinfo.fcomp in
-  match fieldinfo.ftype with
-  | TPtr (TComp (target_struct, _), _) -> target_struct.ckey = this_struct.ckey
-  | _ -> false
+let is_next_field (this_field : fieldinfo) : bool =
+  let this_struct = this_field.fcomp in
+  let fields = Option.get this_struct.cfields in
+  let self_pointers =
+    List.filter
+      (fun field ->
+        match field.ftype with
+        | TPtr (TComp (target_struct, _), _) ->
+            target_struct.ckey = this_struct.ckey
+        | _ -> false)
+      fields
+  in
+  match (self_pointers, this_field) with
+  | [], _ -> false
+  | [ self_ptr ], ptr when self_ptr.fname = ptr.fname -> true
+  | [ _ ], _ -> false
+  | _ ->
+      Printing.print_warn
+        "Found structure with mutliple self-referential pointers, skipping in \
+         analysis: ";
+      print_endline @@ compFullName this_struct;
+      false
 
 class field_access_to_deref =
   object (self)
