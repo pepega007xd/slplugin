@@ -41,9 +41,9 @@ let expose_pto (var : SSL.Variable.t) (formula : SSL.t) : SSL.t list =
             let new_fresh_var = mk_fresh_var "ls" in
             Left
               [
-                (* ls was a simple pto *)
+                (* case 1: ls was a simple pto *)
                 SSL.mk_pto (Var src) (Var dst);
-                (* ls was at least length 2 *)
+                (* case 2: ls was at least length 2 *)
                 SSL.mk_star
                   [
                     SSL.mk_pto (Var src) (Var new_fresh_var);
@@ -56,7 +56,11 @@ let expose_pto (var : SSL.Variable.t) (formula : SSL.t) : SSL.t list =
         | other -> Right other)
       atoms
   in
+
   let new_atoms = List.flatten new_atoms in
+  if List.is_empty new_atoms then
+    fail "detected a dereference of an unallocated variable";
+
   List.map
     (fun atom -> SSL.mk_star (atom :: rest) |> Simplifier.simplify)
     new_atoms

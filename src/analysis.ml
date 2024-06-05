@@ -222,8 +222,9 @@ let doEdge (prev_stmt : stmt) (next_stmt : stmt) (state : SSL.t list) :
   let open Simplification in
   let modified =
     List.map Simplifier.simplify state
+    |> List.filter check_sat
     |> List.map (convert_vars_to_fresh end_of_scope_locals)
-    |> List.filter check_sat |> List.map remove_junk |> List.map remove_nil_vars
+    |> List.map remove_junk |> List.map remove_nil_vars
     |> List.map reduce_equiv_classes
     |> List.map convert_to_ls
     |> List.map remove_distinct_only
