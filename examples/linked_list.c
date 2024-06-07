@@ -50,6 +50,4 @@ int main() {
             list = next;
         }
     }
-
-    start->next = NULL;
 }
