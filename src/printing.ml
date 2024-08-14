@@ -1,5 +1,12 @@
 open Astral
 open Cil_types
+open Common
+
+(* categories of debug output, enable with `-sl-msg-key <category1,category2,...>` *)
+let do_instr = Config.Self.register_category "do_instr"
+let combine_predecessors = Config.Self.register_category "combine_predecessors"
+let do_guard = Config.Self.register_category "do_guard"
+let do_edge = Config.Self.register_category "do_edge"
 
 let print_control (s : string) =
   if Out_channel.isatty Out_channel.stdout then print_string s
@@ -44,3 +51,6 @@ let print_result (result : (stmt, SSL.t list) Hashtbl.t) =
          print_newline ();
          print_stmt stmt;
          print_state state)
+
+let pp_state (fmt : Format.formatter) (state : state) =
+  List.iter (SSL.pp fmt) state

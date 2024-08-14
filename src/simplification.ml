@@ -1,8 +1,8 @@
+open Config
 open Astral
 open Common
 open Printing
 open Equiv_class
-open Slplugin_options
 
 let extract_ptr (ptr : SSL.t) : SSL.Variable.t * SSL.Variable.t =
   match ptr with
@@ -125,7 +125,7 @@ let remove_distinct_only (formula : SSL.t) : SSL.t =
       (fun atom ->
         match atom with
         | SSL.Distinct _ -> true
-        | _ when list_contains (extract_vars [ atom ]) var -> false
+        | _ when List.mem var (extract_vars [ atom ]) -> false
         | _ -> true)
       atoms
   in
@@ -142,7 +142,7 @@ let remove_distinct_only (formula : SSL.t) : SSL.t =
     atoms
   |> SSL.mk_star
 
-(* removes all atoms of the form (x' -> y), where x' doesn't appear anywhere else *)
+(* removes all atoms of the form (x' = y), (x' -> y), and ls(x',y) where x' doesn't appear anywhere else *)
 let remove_junk (formula : SSL.t) : SSL.t =
   let atoms = get_atoms formula in
   let vars = extract_vars atoms in
@@ -166,7 +166,7 @@ let remove_junk (formula : SSL.t) : SSL.t =
                occurence in the formula *)
             let is_cycle =
               is_fresh_var src && is_fresh_var dst
-              && list_contains atoms (SSL.mk_pto (Var dst) (Var src))
+              && List.mem (SSL.mk_pto (Var dst) (Var src)) atoms
             in
             (not @@ is_alone) || is_cycle
         | SSL.LS (Var src, Var _) ->
@@ -179,13 +179,11 @@ let remove_junk (formula : SSL.t) : SSL.t =
         | _ -> true)
       atoms
   in
+
   if List.length junk_atoms = 0 then formula
   else (
-    if Debug_output.get () then (
-      print_warn "removing junk:";
-      print_state junk_atoms);
-
-    SSL.Star valid_atoms)
+    Self.warning "removing junk: %a" SSL.pp (SSL.mk_star junk_atoms);
+    SSL.mk_star valid_atoms)
 
 let remove_nil_vars (formula : SSL.t) : SSL.t =
   let atoms = get_atoms formula in

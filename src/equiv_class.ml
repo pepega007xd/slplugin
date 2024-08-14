@@ -9,11 +9,11 @@ let find_new_equiv_vars (atoms : SSL.t list) (found_vars : SSL.Variable.t list)
       | SSL.Eq [ SSL.Var lhs; SSL.Var rhs ] ->
           if
             (* lhs is new to equivalence class *)
-            list_contains found_vars rhs && (not @@ list_contains found_vars lhs)
+            List.mem rhs found_vars && (not @@ List.mem lhs found_vars)
           then Some lhs
           else if
             (* rhs is new to equivalence class *)
-            list_contains found_vars lhs && (not @@ list_contains found_vars rhs)
+            List.mem lhs found_vars && (not @@ List.mem rhs found_vars)
           then Some rhs
           else None
       | SSL.Eq _ -> fail "equality with less/more than two operators"
@@ -30,14 +30,15 @@ let rec mk_equiv_class_rec (atoms : SSL.t list)
 
 (* transforms `formmula` so that `var` or its alias is a part of a points-to atom, not a list segment,
    multiple formauls can be produced, representing different lengths of `ls` (1, 2+) *)
-let expose_pto (var : SSL.Variable.t) (formula : SSL.t) : SSL.t list =
+let materialize (var : SSL.Variable.t) (formula : SSL.t) : SSL.t list =
   let atoms = get_atoms formula in
   let equiv_class = mk_equiv_class_rec atoms [ var ] in
+
   let new_atoms, rest =
     List.partition_map
       (fun atom ->
         match atom with
-        | SSL.LS (Var src, Var dst) when list_contains equiv_class src ->
+        | SSL.LS (Var src, Var dst) when List.mem src equiv_class ->
             let new_fresh_var = mk_fresh_var "ls" in
             Left
               [
@@ -51,7 +52,7 @@ let expose_pto (var : SSL.Variable.t) (formula : SSL.t) : SSL.t list =
                     SSL.mk_distinct (Var new_fresh_var) (Var dst);
                   ];
               ]
-        | SSL.PointsTo (Var src, _) when list_contains equiv_class src ->
+        | SSL.PointsTo (Var src, _) when List.mem src equiv_class ->
             Left [ atom ]
         | other -> Right other)
       atoms
@@ -75,11 +76,11 @@ let extract_target_single (formula : SSL.t) (var : SSL.Variable.t) :
     List.find_map
       (fun atom ->
         match atom with
-        | SSL.PointsTo (Var src, LS_t dst) when list_contains equiv_class src ->
+        | SSL.PointsTo (Var src, LS_t dst) when List.mem src equiv_class ->
             Some (src, dst)
         | _ -> None)
       atoms
-    |> Option.get (* TODO print a sensible error message *)
+    |> Option.get (* TODO: print a sensible error message *)
   in
   (src, dst)
 
@@ -87,9 +88,18 @@ let extract_target_single (formula : SSL.t) (var : SSL.Variable.t) :
    where `var` is the lhs of the points-to atom *)
 let extract_target (formula : SSL.t) (var : SSL.Variable.t) :
     (SSL.Variable.t * SSL.Variable.t * SSL.t) list =
-  let formulas = expose_pto var formula in
+  let formulas = materialize var formula in
   List.map
     (fun formula ->
       let src, dst = extract_target_single formula var in
       (src, dst, formula))
     formulas
+
+module Tests = struct
+  open Testing
+
+  let%test_unit "variable_comparison" =
+    let lhs = SSL.Variable.mk "abc" Sort.loc_ls in
+    let rhs = SSL.Variable.mk "abc" Sort.loc_ls in
+    assert (lhs = rhs)
+end

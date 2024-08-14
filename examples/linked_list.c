@@ -6,7 +6,9 @@ typedef struct List {
 } List;
 
 int main() {
+    // List *start = malloc(sizeof(List));
     List *start = malloc(sizeof(List));
+
     if (start == NULL)
         return 1;
 

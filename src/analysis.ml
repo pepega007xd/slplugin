@@ -1,88 +1,51 @@
+open Config
 open Astral
 open Cil_types
-open Slplugin_options
 open Printing
 open Common
 open Dataflow2
 
 let name = "slplugin"
-let debug = false
+let debug = true (* TODO: what does this do??? *)
 
-type t = SSL.t list
+type t = state
 
 let copy state = state
 let pretty fmt state = List.iter (SSL.pp fmt) state
 
-let var_of_exp (exp : exp) : SSL.Variable.t =
-  match exp.enode with
-  | Lval (Var varinfo, NoOffset) -> var_of_varinfo varinfo
-  | Const _ -> SSL.Variable.nil
-  | _ -> fail "expression is not Lval or Const"
+let var (varinfo : Cil_types.varinfo) : SSL.Variable.t =
+  SSL.Variable.mk varinfo.vname Sort.loc_ls
 
 (* *this* is the transfer function for instructions, we take the instr and previous
    state, and create new state *)
-let doInstr (stmt : stmt) (instr : instr) (prev_state : SSL.t list) : SSL.t list
-    =
-  if Debug_output.get () then (
-    print_warn "doInstr";
-    print_stmt stmt;
-    print_endline "previous state:";
-    print_state prev_state);
-
+let doInstr _ (instr : instr) (prev_state : state) : state =
   let new_state =
-    match instr with
-    | Local_init (lhs, rhs, _) -> (
-        (* int *a = malloc(...) *)
-        let lhs = var_of_varinfo lhs in
-        match rhs with
-        | AssignInit (SingleInit rhs) ->
-            List.map (Transfer.assign lhs (var_of_exp rhs)) prev_state
-        | ConsInit (fn, params, _) ->
-            List.map (Transfer.call (Some lhs) fn params) prev_state
-            |> List.flatten
-        | _ -> fail "unimplemented Local_init")
-    | Set (lhs, rhs, _) -> (
-        match (lhs, rhs.enode) with
-        (* *a = b; *)
-        | (Mem { enode = Lval (Var lhs, NoOffset); _ }, NoOffset), Lval _ ->
-            List.map
-              (Transfer.assign_lhs_deref (var_of_varinfo lhs) (var_of_exp rhs))
-              prev_state
-            |> List.flatten
-        (* a = *b; *)
-        | ( (Var lhs, NoOffset),
-            Lval (Mem { enode = Lval (Var rhs, NoOffset); _ }, NoOffset) ) ->
-            List.map
-              (Transfer.assign_rhs_deref (var_of_varinfo lhs)
-                 (var_of_varinfo rhs))
-              prev_state
-            |> List.flatten
-        (* a = b; *)
-        (* a = NULL; *)
-        | (Var lhs, NoOffset), (Lval (Var _, NoOffset) | Const _) ->
-            List.map
-              (Transfer.assign (var_of_varinfo lhs) (var_of_exp rhs))
-              prev_state
-        | _ -> fail "unimplemented Set")
-    | Call (lhs_opt, func, params, _) -> (
-        match (lhs_opt, func.enode) with
-        (* a = func(); *)
-        | Some (Var lhs, NoOffset), Lval (Var func, NoOffset) ->
-            List.map
-              (Transfer.call (Some (var_of_varinfo lhs)) func params)
-              prev_state
-            |> List.flatten
-        (* func(); *)
-        | None, Lval (Var func, NoOffset) ->
-            List.map (Transfer.call None func params) prev_state |> List.flatten
-        | _ -> fail "unimplemented Call")
-    | Skip _ -> prev_state
-    | _ -> fail "other unimplemented Instr"
+    match Preprocessing.get_instr_type instr with
+    | Preprocessing.Assign_simple (lhs, rhs) ->
+        prev_state |> List.map (Transfer.assign (var lhs) (var rhs))
+    | Preprocessing.Assign_rhs_field (lhs, rhs, rhs_field) ->
+        prev_state
+        |> List.concat_map (Equiv_class.materialize (var rhs))
+        |> List.map
+             (Transfer.assign_rhs_field (var lhs) (var rhs)
+                (Preprocessing.get_field_type rhs_field))
+    | Preprocessing.Assign_lhs_field (lhs, lhs_field, rhs) ->
+        prev_state
+        |> List.concat_map (Equiv_class.materialize (var lhs))
+        |> List.map
+             (Transfer.assign_lhs_field (var lhs)
+                (Preprocessing.get_field_type lhs_field)
+                (var rhs))
+    | Preprocessing.Call (lhs_opt, func, params) ->
+        prev_state
+        |> List.concat_map
+             (Transfer.call (Option.map var lhs_opt) func (List.map var params))
+    | Preprocessing.ComplexInstr -> fail "unreachable"
+    | Preprocessing.Ignored -> prev_state
   in
-  if Debug_output.get () then (
-    print_endline "new state:";
-    print_state new_state;
-    print_newline ());
+  Self.debug ~current:true ~dkey:Printing.do_instr
+    "previous state: %a\nnew state: %a" Printing.pp_state prev_state
+    Printing.pp_state new_state;
   new_state
 
 (* `state` comes from doInstr, so it is actually the new state *)
@@ -99,9 +62,8 @@ let entailment (lhs : SSL.t) (rhs : SSL.t) : bool =
   Common.solver_time := !Common.solver_time +. Sys.time () -. start;
   result
 
-let deduplicate_states (state : SSL.t list) : SSL.t list =
-  let rec select_to_keep (to_keep : SSL.t list) (to_check : SSL.t list) :
-      SSL.t list =
+let deduplicate_states (state : state) : state =
+  let rec select_to_keep (to_keep : state) (to_check : state) : state =
     match to_check with
     | [] -> to_keep
     | [ current ] when to_keep = [] -> [ current ]
@@ -117,40 +79,25 @@ let deduplicate_states (state : SSL.t list) : SSL.t list =
 
 (* iterate over all formulas of new_state `phi`, and each one that doesn't satisfy
    (phi => old) has to be added to `old`. If old is not changed, None is returned. *)
-let combinePredecessors (stmt : stmt) ~old:(old_state : t) (new_state : t) :
-    t option =
-  if Debug_output.get () then (
-    print_warn "combinePredecessors";
-    print_stmt stmt;
-    print_endline "old state:";
-    print_state old_state;
-    print_endline "new state:";
-    print_state new_state);
-
+let combinePredecessors _ ~old:(old_state : state) (new_state : state) :
+    state option =
   let joined_state = deduplicate_states @@ old_state @ new_state in
 
   if entailment (SSL.mk_or joined_state) (SSL.mk_or old_state) then (
-    if Debug_output.get () then (
-      print_endline "joined state:";
-      print_state joined_state;
-      print_endline "old state did not change";
-      print_newline ());
+    Self.debug ~current:true ~dkey:Printing.combine_predecessors
+      "old state: %a\nnew state: %a\n<state did not change>" Printing.pp_state
+      old_state Printing.pp_state new_state;
     None)
   else (
-    if Debug_output.get () then (
-      print_endline "joined state:";
-      print_state joined_state;
-      print_newline ());
+    Self.debug ~current:true ~dkey:Printing.combine_predecessors
+      "old state: %a\nnew state: %a\ncombined state: %a" Printing.pp_state
+      old_state Printing.pp_state new_state Printing.pp_state joined_state;
     Some joined_state)
 
 (* we need to filter the formulas of `state` for each branch to only those,
    which are satisfiable in each of the branches *)
-let doGuard (stmt : stmt) (exp : exp) (state : t) :
-    t guardaction * t guardaction =
-  if Debug_output.get () then (
-    print_warn "doGuard";
-    print_stmt stmt);
-
+let doGuard _ (exp : exp) (state : state) :
+    state guardaction * state guardaction =
   let add_eq lhs rhs state =
     List.map
       (fun formula -> SSL.mk_star [ formula; SSL.mk_eq (Var lhs) (Var rhs) ])
@@ -169,16 +116,16 @@ let doGuard (stmt : stmt) (exp : exp) (state : t) :
         (* if (a == b) {...} *)
         match (lhs.enode, rhs.enode) with
         | Lval (Var lhs, NoOffset), Lval (Var rhs, NoOffset) ->
-            let lhs = var_of_varinfo lhs in
-            let rhs = var_of_varinfo rhs in
+            let lhs = var lhs in
+            let rhs = var rhs in
             (add_eq lhs rhs state, add_ne lhs rhs state)
         | _ -> (state, state))
     | BinOp (Ne, lhs, rhs, _) -> (
         (* if (a != b) {...} *)
         match (lhs.enode, rhs.enode) with
         | Lval (Var lhs, NoOffset), Lval (Var rhs, NoOffset) ->
-            let lhs = var_of_varinfo lhs in
-            let rhs = var_of_varinfo rhs in
+            let lhs = var lhs in
+            let rhs = var rhs in
             (add_ne lhs rhs state, add_eq lhs rhs state)
         | _ -> (state, state))
     (* all other conditions don't filter out any states *)
@@ -187,32 +134,19 @@ let doGuard (stmt : stmt) (exp : exp) (state : t) :
   let th = List.filter check_sat th in
   let el = List.filter check_sat el in
 
-  if Debug_output.get () then (
-    print_endline "then:";
-    print_state th;
-    print_endline "else:";
-    print_state el;
-    print_newline ());
+  Self.debug ~current:true ~dkey:Printing.do_guard
+    "state: %a\nthen branch: %a\nelse branch: %a" Printing.pp_state state
+    Printing.pp_state th Printing.pp_state el;
 
   let th = if List.is_empty th then GUnreachable else GUse th in
   let el = if List.is_empty el then GUnreachable else GUse el in
   (th, el)
 
 (* we always want to continue with analysis *)
-let doStmt (_ : stmt) (_ : SSL.t list) : SSL.t list stmtaction = SDefault
+let doStmt (_ : stmt) (_ : state) : state stmtaction = SDefault
 
 (* simplify formulas and filter out unsatisfiable ones *)
-let doEdge (prev_stmt : stmt) (next_stmt : stmt) (state : SSL.t list) :
-    SSL.t list =
-  if Debug_output.get () then (
-    print_warn "doEdge";
-    print_endline "previous stmt:";
-    print_stmt prev_stmt;
-    print_endline "next stmt:";
-    print_stmt next_stmt;
-    print_endline "original state:";
-    print_state state);
-
+let doEdge (prev_stmt : stmt) (next_stmt : stmt) (state : state) : state =
   let prev_locals = Hashtbl.find !local_vars_for_stmt prev_stmt in
   let new_locals = Hashtbl.find !local_vars_for_stmt next_stmt in
   let end_of_scope_locals =
@@ -231,14 +165,13 @@ let doEdge (prev_stmt : stmt) (next_stmt : stmt) (state : SSL.t list) :
     |> deduplicate_states
   in
 
-  if Debug_output.get () then (
-    print_endline "simplified state:";
-    print_state modified;
-    print_newline ());
+  Self.debug ~current:true ~dkey:Printing.do_edge
+    "original state: %a\nnew state: %a" Printing.pp_state state
+    Printing.pp_state modified;
   modified
 
 module StmtStartData = struct
-  type data = t
+  type data = state
 
   let clear () = Hashtbl.clear !results
   let mem = Hashtbl.mem !results
