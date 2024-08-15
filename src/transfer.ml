@@ -10,7 +10,7 @@ let assign (lhs : SSL.Variable.t) (rhs : SSL.Variable.t) (formula : SSL.t) :
 (** transfer function for `var = var->field;` *)
 let assign_rhs_field (lhs : SSL.Variable.t) (rhs : SSL.Variable.t)
     (rhs_field : Preprocessing.field_type) (formula : SSL.t) : SSL.t =
-  let rhs_var = Formula.get_pto_target rhs rhs_field formula in
+  let rhs_var = Formula.get_pto_target rhs rhs_field formula |> Option.get in
   formula |> Formula.substitute_by_fresh lhs |> Formula.add_eq lhs rhs_var
 
 (** transfer function for `var->field = var;` *)

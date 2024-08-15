@@ -31,7 +31,7 @@ let rec mk_equiv_class_rec (atoms : SSL.t list)
 (* transforms `formmula` so that `var` or its alias is a part of a points-to atom, not a list segment,
    multiple formauls can be produced, representing different lengths of `ls` (1, 2+) *)
 let materialize (var : SSL.Variable.t) (formula : SSL.t) : SSL.t list =
-  let atoms = get_atoms formula in
+  let atoms = Formula.get_atoms formula in
   let equiv_class = mk_equiv_class_rec atoms [ var ] in
 
   let new_atoms, rest =
@@ -70,7 +70,7 @@ let materialize (var : SSL.Variable.t) (formula : SSL.t) : SSL.t list =
    returns both sides of points-to atom *)
 let extract_target_single (formula : SSL.t) (var : SSL.Variable.t) :
     SSL.Variable.t * SSL.Variable.t =
-  let atoms = get_atoms formula in
+  let atoms = Formula.get_atoms formula in
   let equiv_class = mk_equiv_class_rec atoms [ var ] in
   let src, dst =
     List.find_map

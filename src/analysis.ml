@@ -1,7 +1,6 @@
 open Config
 open Astral
 open Cil_types
-open Printing
 open Common
 open Dataflow2
 
@@ -16,8 +15,7 @@ let pretty fmt state = List.iter (SSL.pp fmt) state
 let var (varinfo : Cil_types.varinfo) : SSL.Variable.t =
   SSL.Variable.mk varinfo.vname Sort.loc_ls
 
-(* *this* is the transfer function for instructions, we take the instr and previous
-   state, and create new state *)
+(** this is the transfer function for instructions, we take the instr and previous state, and create new state *)
 let doInstr _ (instr : instr) (prev_state : state) : state =
   let new_state =
     match Preprocessing.get_instr_type instr with
@@ -51,24 +49,14 @@ let doInstr _ (instr : instr) (prev_state : state) : state =
 (* `state` comes from doInstr, so it is actually the new state *)
 let computeFirstPredecessor _ state = state
 
-let entailment (lhs : SSL.t) (rhs : SSL.t) : bool =
-  let vars = extract_vars @@ get_atoms rhs in
-  let fresh_vars = List.filter is_fresh_var vars |> list_deduplicate in
-  let fresh_vars = List.map (fun var -> SSL.Var var) fresh_vars in
-  let quantified_rhs = SSL.mk_exists fresh_vars rhs in
-  let testsolver = Solver.init () in
-  let start = Sys.time () in
-  let result = Solver.check_entl testsolver lhs quantified_rhs in
-  Common.solver_time := !Common.solver_time +. Sys.time () -. start;
-  result
-
 let deduplicate_states (state : state) : state =
   let rec select_to_keep (to_keep : state) (to_check : state) : state =
     match to_check with
     | [] -> to_keep
     | [ current ] when to_keep = [] -> [ current ]
     | current :: rest ->
-        if entailment current (SSL.mk_or (to_keep @ rest)) then
+        if Astral_query.check_entailment current (SSL.mk_or (to_keep @ rest))
+        then
           (* `current` is already contained in the other formulas *)
           select_to_keep to_keep rest
         else
@@ -83,7 +71,9 @@ let combinePredecessors _ ~old:(old_state : state) (new_state : state) :
     state option =
   let joined_state = deduplicate_states @@ old_state @ new_state in
 
-  if entailment (SSL.mk_or joined_state) (SSL.mk_or old_state) then (
+  if
+    Astral_query.check_entailment (SSL.mk_or joined_state) (SSL.mk_or old_state)
+  then (
     Self.debug ~current:true ~dkey:Printing.combine_predecessors
       "old state: %a\nnew state: %a\n<state did not change>" Printing.pp_state
       old_state Printing.pp_state new_state;
@@ -98,41 +88,31 @@ let combinePredecessors _ ~old:(old_state : state) (new_state : state) :
    which are satisfiable in each of the branches *)
 let doGuard _ (exp : exp) (state : state) :
     state guardaction * state guardaction =
-  let add_eq lhs rhs state =
-    List.map
-      (fun formula -> SSL.mk_star [ formula; SSL.mk_eq (Var lhs) (Var rhs) ])
-      state
-  in
-  let add_ne lhs rhs state =
-    List.map
-      (fun formula ->
-        SSL.mk_star [ formula; SSL.mk_distinct (Var lhs) (Var rhs) ])
-      state
-  in
-
   let th, el =
     match exp.enode with
-    | BinOp (Eq, lhs, rhs, _) -> (
-        (* if (a == b) {...} *)
-        match (lhs.enode, rhs.enode) with
-        | Lval (Var lhs, NoOffset), Lval (Var rhs, NoOffset) ->
-            let lhs = var lhs in
-            let rhs = var rhs in
-            (add_eq lhs rhs state, add_ne lhs rhs state)
+    | Lval (Var ptr, NoOffset) ->
+        (* `if (a)` is equivalent to `if (a != NULL)` *)
+        ( List.map (Formula.add_distinct (var ptr) Formula.nil) state,
+          List.map (Formula.add_eq (var ptr) Formula.nil) state )
+    | BinOp
+        ( operator,
+          { enode = Lval (Var lhs, NoOffset); _ },
+          { enode = Lval (Var rhs, NoOffset); _ },
+          _ ) -> (
+        let lhs = var lhs in
+        let rhs = var rhs in
+        match operator with
+        | Eq ->
+            ( List.map (Formula.add_eq lhs rhs) state,
+              List.map (Formula.add_distinct lhs rhs) state )
+        | Ne ->
+            ( List.map (Formula.add_distinct lhs rhs) state,
+              List.map (Formula.add_eq lhs rhs) state )
         | _ -> (state, state))
-    | BinOp (Ne, lhs, rhs, _) -> (
-        (* if (a != b) {...} *)
-        match (lhs.enode, rhs.enode) with
-        | Lval (Var lhs, NoOffset), Lval (Var rhs, NoOffset) ->
-            let lhs = var lhs in
-            let rhs = var rhs in
-            (add_ne lhs rhs state, add_eq lhs rhs state)
-        | _ -> (state, state))
-    (* all other conditions don't filter out any states *)
     | _ -> (state, state)
   in
-  let th = List.filter check_sat th in
-  let el = List.filter check_sat el in
+  let th = List.filter Astral_query.check_sat th in
+  let el = List.filter Astral_query.check_sat el in
 
   Self.debug ~current:true ~dkey:Printing.do_guard
     "state: %a\nthen branch: %a\nelse branch: %a" Printing.pp_state state
@@ -142,7 +122,7 @@ let doGuard _ (exp : exp) (state : state) :
   let el = if List.is_empty el then GUnreachable else GUse el in
   (th, el)
 
-(* we always want to continue with analysis *)
+(* we always want to continue with the analysis *)
 let doStmt (_ : stmt) (_ : state) : state stmtaction = SDefault
 
 (* simplify formulas and filter out unsatisfiable ones *)
@@ -156,9 +136,9 @@ let doEdge (prev_stmt : stmt) (next_stmt : stmt) (state : state) : state =
   let open Simplification in
   let modified =
     List.map Simplifier.simplify state
-    |> List.filter check_sat
-    |> List.map (convert_vars_to_fresh end_of_scope_locals)
-    |> List.map remove_junk |> List.map remove_nil_vars
+    |> List.filter Astral_query.check_sat
+    |> List.map (Formula.convert_vars_to_fresh end_of_scope_locals)
+    |> List.map remove_leaks
     |> List.map reduce_equiv_classes
     |> List.map convert_to_ls
     |> List.map remove_distinct_only
@@ -186,7 +166,9 @@ module Tests = struct
   open Testing
 
   let changed joined_state old_state =
-    not @@ entailment (SSL.mk_or joined_state) (SSL.mk_or old_state)
+    not
+    @@ Astral_query.check_entailment (SSL.mk_or joined_state)
+         (SSL.mk_or old_state)
 
   let%test_unit "join" =
     let old_state = [ SSL.mk_star [ SSL.mk_pto x y' ] ] in
@@ -210,7 +192,7 @@ module Tests = struct
   let%test_unit "entailment" =
     let old_state = SSL.mk_star [ SSL.mk_ls x y; SSL.mk_distinct x y ] in
     let new_state = SSL.mk_star [ SSL.mk_pto x' y'; SSL.mk_pto y' z' ] in
-    assert (not @@ entailment old_state new_state)
+    assert (not @@ Astral_query.check_entailment old_state new_state)
 
   let%test_unit "entailment" =
     let start = mk_var "start" in
@@ -249,5 +231,5 @@ module Tests = struct
             ];
         ]
     in
-    assert (not @@ entailment old_state new_state)
+    assert (not @@ Astral_query.check_entailment old_state new_state)
 end
