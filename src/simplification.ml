@@ -2,51 +2,6 @@ open Config
 open Astral
 open Common
 open Printing
-open Equiv_class
-
-let convert_to_ls (formula : SSL.t) : SSL.t =
-  let is_unique_fresh var =
-    is_fresh_var var && Formula.count_occurences_excl_distinct var formula = 2
-  in
-
-  let extract_ptr (ptr : SSL.t) : SSL.Variable.t * SSL.Variable.t =
-    match ptr with
-    | PointsTo (Var src, LS_t dst) -> (src, dst)
-    | LS (Var src, Var dst) -> (src, dst)
-    | _ -> fail "unreachable"
-  in
-
-  let do_abstraction (formula : SSL.t) (atom : SSL.t) : SSL.t =
-    let atoms = Formula.get_atoms formula in
-    let src_var, middle_var = extract_ptr atom in
-    let dst_var_opt =
-      Formula.get_pto_target middle_var Preprocessing.Next formula
-    in
-    (* conditions for abstraction *)
-    if
-      (* both spatial predicates (src|->middle and middle|->dst) must still be in formula *)
-      List.mem atom atoms && Option.is_some dst_var_opt
-      (* middle must be fresh variable, and occur only in these two predicates *)
-      && is_unique_fresh middle_var
-      (* src must be different from dst (checked using solver) *)
-      && Astral_query.check_inequality src_var (Option.get dst_var_opt) formula
-    then
-      let dst_var = Option.get dst_var_opt in
-      formula
-      |> Formula.remove_pto_from src_var
-      |> Formula.remove_pto_from middle_var
-      |> Formula.add_atom (SSL.mk_ls (Var src_var) (Var dst_var))
-      |> Formula.add_atom (SSL.mk_distinct (Var src_var) (Var dst_var))
-    else formula
-  in
-
-  let ls_atoms =
-    Formula.get_atoms formula
-    |> List.filter (function
-         | SSL.LS _ | SSL.PointsTo (_, LS_t _) -> true
-         | _ -> false)
-  in
-  List.fold_left do_abstraction formula ls_atoms
 
 (** removes fresh variables by substituting them with other variables in their equivalence class *)
 let reduce_equiv_classes (formula : SSL.t) : SSL.t =
@@ -116,25 +71,6 @@ let remove_leaks (formula : SSL.t) : SSL.t =
 
 module Tests = struct
   open Testing
-
-  let%test_unit "abstraction_ls_nothing" =
-    let input = SSL.mk_star [ SSL.mk_pto x y'; SSL.mk_pto y' z ] in
-    let result = convert_to_ls input in
-    assert_eq input result
-
-  let%test_unit "abstraction_ls_allocated_end" =
-    let input =
-      SSL.mk_star [ SSL.mk_pto x y'; SSL.mk_pto y' z; SSL.mk_distinct x z ]
-    in
-    let result = convert_to_ls input in
-    let expected = SSL.mk_star [ SSL.mk_ls x z; SSL.mk_distinct x z ] in
-    assert_eq result expected
-
-  let%test_unit "abstraction_ls_nil_end" =
-    let input = SSL.mk_star [ SSL.mk_pto x y'; SSL.mk_pto y' nil ] in
-    let result = convert_to_ls input in
-    let expected = SSL.mk_star [ SSL.mk_ls x nil; SSL.mk_distinct x nil ] in
-    assert_eq result expected
 
   let%test_unit "reduce_equiv_classes" =
     let input = SSL.mk_star [ SSL.mk_eq x y'; SSL.mk_eq y' nil ] in

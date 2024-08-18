@@ -1,19 +1,18 @@
 open Astral
 open Common
-open Equiv_class
 
-(** transfer function for `var = var;` *)
+(** transfer function for [var = var;] *)
 let assign (lhs : SSL.Variable.t) (rhs : SSL.Variable.t) (formula : SSL.t) :
     SSL.t =
   formula |> Formula.substitute_by_fresh lhs |> Formula.add_eq lhs rhs
 
-(** transfer function for `var = var->field;` *)
+(** transfer function for [var = var->field;] *)
 let assign_rhs_field (lhs : SSL.Variable.t) (rhs : SSL.Variable.t)
     (rhs_field : Preprocessing.field_type) (formula : SSL.t) : SSL.t =
-  let rhs_var = Formula.get_pto_target rhs rhs_field formula |> Option.get in
+  let rhs_var = Formula.get_spatial_target rhs rhs_field formula in
   formula |> Formula.substitute_by_fresh lhs |> Formula.add_eq lhs rhs_var
 
-(** transfer function for `var->field = var;` *)
+(** transfer function for [var->field = var;] *)
 let assign_lhs_field (lhs : SSL.Variable.t)
     (lhs_field : Preprocessing.field_type) (rhs : SSL.Variable.t)
     (formula : SSL.t) : SSL.t =
@@ -28,8 +27,10 @@ let call (lhs_opt : SSL.Variable.t option) (func : Cil_types.varinfo)
     | None -> formula
   in
 
-  let lhs = Option.value lhs_opt ~default:(mk_fresh_var "leak") in
-  let rhs = mk_fresh_var "alloc" in
+  let lhs =
+    Option.value lhs_opt ~default:(SSL.Variable.mk_fresh "leak" Sort.loc_ls)
+  in
+  let rhs = mk_fresh_var_from lhs in
 
   match (func.vname, params) with
   | "malloc", _ ->
@@ -45,10 +46,13 @@ let call (lhs_opt : SSL.Variable.t option) (func : Cil_types.varinfo)
         Formula.add_atom (SSL.mk_pto (Var lhs) (SSL.mk_nil ())) formula;
         Formula.add_eq lhs Formula.nil formula;
       ]
-  | "realloc", _ ->
+  | "realloc", var :: _ ->
       (* realloc changes only the size of allocation - no change in pointer structure *)
+      Formula.assert_allocated var formula;
       [ formula ]
-  | "free", [ var ] -> [ Formula.remove_pto_from var formula ]
+  | "free", [ var ] ->
+      formula |> Formula.materialize var
+      |> List.map (Formula.remove_spatial_from var)
   | _ -> fail "function calls are not implemented"
 
 module Tests = struct

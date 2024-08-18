@@ -23,13 +23,13 @@ let doInstr _ (instr : instr) (prev_state : state) : state =
         prev_state |> List.map (Transfer.assign (var lhs) (var rhs))
     | Preprocessing.Assign_rhs_field (lhs, rhs, rhs_field) ->
         prev_state
-        |> List.concat_map (Equiv_class.materialize (var rhs))
+        |> List.concat_map (Formula.materialize (var rhs))
         |> List.map
              (Transfer.assign_rhs_field (var lhs) (var rhs)
                 (Preprocessing.get_field_type rhs_field))
     | Preprocessing.Assign_lhs_field (lhs, lhs_field, rhs) ->
         prev_state
-        |> List.concat_map (Equiv_class.materialize (var lhs))
+        |> List.concat_map (Formula.materialize (var lhs))
         |> List.map
              (Transfer.assign_lhs_field (var lhs)
                 (Preprocessing.get_field_type lhs_field)
@@ -46,7 +46,7 @@ let doInstr _ (instr : instr) (prev_state : state) : state =
     Printing.pp_state new_state;
   new_state
 
-(* `state` comes from doInstr, so it is actually the new state *)
+(* [state] comes from doInstr, so it is actually the new state *)
 let computeFirstPredecessor _ state = state
 
 let deduplicate_states (state : state) : state =
@@ -57,16 +57,16 @@ let deduplicate_states (state : state) : state =
     | current :: rest ->
         if Astral_query.check_entailment current (SSL.mk_or (to_keep @ rest))
         then
-          (* `current` is already contained in the other formulas *)
+          (* [current] is already contained in the other formulas *)
           select_to_keep to_keep rest
         else
-          (* `current` has unique models, add it to `to_keep` *)
+          (* [current] has unique models, add it to [to_keep] *)
           select_to_keep (current :: to_keep) rest
   in
   select_to_keep [] state
 
-(* iterate over all formulas of new_state `phi`, and each one that doesn't satisfy
-   (phi => old) has to be added to `old`. If old is not changed, None is returned. *)
+(* iterate over all formulas of new_state [phi], and each one that doesn't satisfy
+   (phi => old) has to be added to [old]. If old is not changed, None is returned. *)
 let combinePredecessors _ ~old:(old_state : state) (new_state : state) :
     state option =
   let joined_state = deduplicate_states @@ old_state @ new_state in
@@ -84,14 +84,14 @@ let combinePredecessors _ ~old:(old_state : state) (new_state : state) :
       old_state Printing.pp_state new_state Printing.pp_state joined_state;
     Some joined_state)
 
-(* we need to filter the formulas of `state` for each branch to only those,
+(* we need to filter the formulas of [state] for each branch to only those,
    which are satisfiable in each of the branches *)
 let doGuard _ (exp : exp) (state : state) :
     state guardaction * state guardaction =
   let th, el =
     match exp.enode with
     | Lval (Var ptr, NoOffset) ->
-        (* `if (a)` is equivalent to `if (a != NULL)` *)
+        (* [if (a)] is equivalent to [if (a != NULL)] *)
         ( List.map (Formula.add_distinct (var ptr) Formula.nil) state,
           List.map (Formula.add_eq (var ptr) Formula.nil) state )
     | BinOp
@@ -140,7 +140,7 @@ let doEdge (prev_stmt : stmt) (next_stmt : stmt) (state : state) : state =
     |> List.map (Formula.convert_vars_to_fresh end_of_scope_locals)
     |> List.map remove_leaks
     |> List.map reduce_equiv_classes
-    |> List.map convert_to_ls
+    |> List.map Abstraction.convert_to_ls
     |> List.map remove_distinct_only
     |> deduplicate_states
   in

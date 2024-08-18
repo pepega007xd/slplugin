@@ -7,27 +7,15 @@ module ForwardsAnalysis = Forwards (Analysis)
 let run () =
   Preprocessing.preprocess ();
 
-  let dump_queries =
-    if Dump_queries.get () then `Full "astral_queries" else `None
-  in
-  let backend = if Use_cvc5.get () then `CVC5 else `Z3 in
-  Astral_query.solver := Solver.init ~dump_queries ~backend ();
+  Astral_query.init ();
 
   let main, _ = Globals.entry_point () in
   let first_stmt = Kernel_function.find_first_stmt main in
-
-  (* print control flow automaton to `cfa.dot` *)
-  let automaton = Interpreted_automata.get_automaton main in
-  let file = Out_channel.open_text "cfa.dot" in
-  Interpreted_automata.output_to_dot ~labeling:`Stmt
-    ~wto:(Interpreted_automata.get_wto main)
-    file automaton;
 
   Hashtbl.add !results first_stmt [ SSL.mk_emp () ];
 
   ForwardsAnalysis.compute [ first_stmt ];
 
-  Printing.print_result !results;
   Solver.dump_stats !Astral_query.solver;
   Self.debug "Astral took %.2f seconds" !Astral_query.solver_time
 

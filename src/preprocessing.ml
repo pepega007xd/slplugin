@@ -48,29 +48,6 @@ let replace_nulls =
       | _ -> DoChildren
   end
 
-let is_next_field (this_field : fieldinfo) : bool =
-  let this_struct = this_field.fcomp in
-  let fields = Option.get this_struct.cfields in
-  let self_pointers =
-    List.filter
-      (fun field ->
-        match field.ftype with
-        | TPtr (TComp (target_struct, _), _) ->
-            target_struct.ckey = this_struct.ckey
-        | _ -> false)
-      fields
-  in
-  match (self_pointers, this_field) with
-  | [], _ -> false
-  | [ self_ptr ], ptr when self_ptr.fname = ptr.fname -> true
-  | [ _ ], _ -> false
-  | _ ->
-      Printing.print_warn
-        "Found structure with mutliple self-referential pointers, skipping in \
-         analysis: ";
-      print_endline @@ compFullName this_struct;
-      false
-
 type field_type = Next | Prev | Top | Data
 type list_type = Sll | Dll | Nl | Other
 
@@ -206,7 +183,7 @@ let convert_set (func : fundec) (lhs : lval) (rhs : lval) (location : location)
     | Var _, NoOffset -> (
         (* lhs is already a variable - we can leave a single offset on rhs *)
         match rhs with
-        (* var = var; case is unreachable, `convert_set` would not be run on simple stmt *)
+        (* var = var; case is unreachable, [convert_set] would not be run on simple stmt *)
         | Mem { enode = Lval inner_lval; _ }, Field (fieldinfo, NoOffset) ->
             let inner_rhs_var, _ = lval_to_var inner_lval in
             let rhs_var_exp =

@@ -1,11 +1,18 @@
 open Astral
 open Common
 
-(** Astral solver instance, created in `slplugin.ml` *)
+(** Astral solver instance, created in [slplugin.ml] *)
 let solver = ref (Solver.init ())
 
 (** time spent in Astral *)
 let solver_time = ref 0.0
+
+let init () =
+  let dump_queries =
+    if Config.Dump_queries.get () then `Full "astral_queries" else `None
+  in
+  let backend = if Config.Use_cvc5.get () then `CVC5 else `Z3 in
+  solver := Solver.init ~dump_queries ~backend ()
 
 let check_sat (formula : SSL.t) : bool =
   let start = Sys.time () in
