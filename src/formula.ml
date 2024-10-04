@@ -364,22 +364,6 @@ let count_occurences_excl_distinct (var : var) (f : t) : int =
   |> List.filter (function Distinct _ -> false | _ -> true)
   |> to_astral |> SSL.get_vars |> Common.list_count var
 
-let x = SSL.mk_var "x" Sort.loc_ls
-let y = SSL.mk_var "y" Sort.loc_ls
-let ls_0 = SSL.mk_ls x y
-let ls_1 = SSL.mk_star [ SSL.mk_ls x y; SSL.mk_distinct x y ]
-
-let ls_2 =
-  SSL.mk_gneg
-    (SSL.mk_star [ SSL.mk_ls x y; SSL.mk_distinct x y ])
-    (SSL.mk_pto x y)
-
-(* TESTING *)
-
-let x = Testing.x_var
-let ls = LS { first = x; next = x; min_len = 1 }
-let a = match ls with LS y -> y.first | _ -> fail ""
-
 module Tests = struct
   open Testing
 end
