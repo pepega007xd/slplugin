@@ -1,7 +1,8 @@
 open Cil
 open Cil_types
 open Common
-open Printing
+open Astral
+module Printer = Frama_c_kernel.Printer
 
 let null_var_name = "_nil"
 let const_var_name = "_const"
@@ -34,7 +35,7 @@ let dummy_location : Cil_types.location =
   in
   (dummy_position, dummy_position)
 
-let replace_nulls =
+let replace_constants =
   object
     inherit Visitor.frama_c_inplace
 
@@ -44,10 +45,12 @@ let replace_nulls =
       match expr.enode with
       | CastE (TPtr (_, _), { enode = Const _; _ }) ->
           ChangeTo (evar nullptr_var)
-      | Const _ -> ChangeTo (evar const_var)
+      | Const _ | SizeOf _ | SizeOfE _ | SizeOfStr _ ->
+          ChangeTo (evar const_var)
       | _ -> DoChildren
   end
 
+(* TODO: move from Preprocessing to Common *)
 type field_type = Next | Prev | Top | Data
 type list_type = Sll | Dll | Nl | Other
 
@@ -89,6 +92,16 @@ and get_list_type (t : typ) : list_type =
       | _ -> Other)
   | _ -> Other
 
+let list_type_to_sort : list_type -> Sort.t = function
+  | Sll -> Sort.loc_ls
+  | Dll -> Sort.loc_dls
+  | Nl -> Sort.loc_nls
+  | Other -> Sort.loc_nil
+
+let varinfo_to_var (varinfo : Cil_types.varinfo) : SSL.Variable.t =
+  SSL.Variable.mk varinfo.vname
+    (varinfo.vtype |> get_list_type |> list_type_to_sort)
+
 and get_field_type (field : fieldinfo) : field_type =
   let self_pointers, sll_pointers = get_self_and_sll_fields field.fcomp in
 
@@ -104,6 +117,7 @@ and get_field_type (field : fieldinfo) : field_type =
   | _ -> Data
 
 (* TODO: find function in frama-c which does this *)
+(* kernel function -> val find_enclosing_block : Cil_types.stmt -> Cil_types.block *)
 let get_local_vars =
   object
     inherit Visitor.frama_c_inplace
@@ -360,7 +374,7 @@ let preprocess () =
 
   uniqueVarNames file;
 
-  Visitor.visitFramacFileFunctions replace_nulls file;
+  Visitor.visitFramacFileFunctions replace_constants file;
   Visitor.visitFramacFileFunctions remove_local_init file;
   Visitor.visitFramacFileFunctions split_complex_stmts file;
 
