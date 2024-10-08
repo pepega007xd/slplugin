@@ -4,21 +4,24 @@ open Common
 (** transfer function for [var = var;] *)
 let assign (lhs : SSL.Variable.t) (rhs : SSL.Variable.t) (formula : Formula.t) :
     Formula.t =
-  let rhs =
-    if SSL.Variable.get_name rhs = Preprocessing.null_var_name then Formula.nil
-    else rhs
-  in
-  formula |> Formula.substitute_by_fresh lhs |> Formula.add_eq lhs rhs
+  (* assignment into "_const" is used to check if rhs is allocated *)
+  if SSL.Variable.get_name lhs = Preprocessing.const_var_name then (
+    Formula.assert_allocated rhs formula;
+    formula)
+  else
+    let rhs =
+      if SSL.Variable.get_name rhs = Preprocessing.null_var_name then
+        Formula.nil
+      else rhs
+    in
+    formula |> Formula.substitute_by_fresh lhs |> Formula.add_eq lhs rhs
 
 (** transfer function for [var = var->field;] *)
 let assign_rhs_field (lhs : SSL.Variable.t) (rhs : SSL.Variable.t)
     (rhs_field : Preprocessing.field_type) (formula : Formula.t) : Formula.t =
+  Formula.assert_allocated rhs formula;
   let rhs_var =
-    Formula.get_spatial_target rhs rhs_field formula
-    |> Option.value
-         ~default:
-           (fail "Variable %a is not allocated in %a" SSL.Variable.pp rhs
-              Printing.pp_formula formula)
+    Formula.get_spatial_target rhs rhs_field formula |> Option.get
   in
   formula |> Formula.substitute_by_fresh lhs |> Formula.add_eq lhs rhs_var
 
@@ -49,12 +52,15 @@ let call (lhs_opt : Cil_types.varinfo option) (func : Cil_types.varinfo)
                 Formula.PointsTo (lhs, DLS_t (fresh (), fresh ()))
             | _ when sort = Sort.loc_nls ->
                 Formula.PointsTo (lhs, NLS_t (fresh (), fresh ()))
-            | _ -> fail "unreachable" ))
+            | _ -> fail "unreachable transfer.ml:52" ))
       | None ->
           let lhs = SSL.Variable.mk_fresh "leak" Sort.loc_ls in
           (lhs, Formula.PointsTo (lhs, LS_t (Common.mk_fresh_var_from lhs)))
     in
-    [ Formula.add_atom pto formula; Formula.add_eq lhs Formula.nil formula ]
+    [
+      formula |> Formula.substitute_by_fresh lhs |> Formula.add_atom pto;
+      Formula.add_eq lhs Formula.nil formula;
+    ]
   in
 
   match (func.vname, params) with

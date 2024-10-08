@@ -61,7 +61,9 @@ let remove_leaks (formula : Formula.t) : Formula.t =
 
   if List.is_empty junk_atoms then formula
   else (
-    List.iter (Self.warning "aaa %a" Printing.pp_atom) junk_atoms;
+    List.iter
+      (Self.warning ~current:true "leak of atom %a" Formula.pp_atom)
+      junk_atoms;
     valid_atoms)
 
 module Tests = struct

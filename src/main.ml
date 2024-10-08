@@ -12,7 +12,7 @@ let run_analysis () =
   let main, _ = Globals.entry_point () in
   let first_stmt = Kernel_function.find_first_stmt main in
 
-  Hashtbl.add !Analysis.results first_stmt [ [ Formula.Emp ] ];
+  Hashtbl.add !Analysis.results first_stmt [ [] ];
 
   ForwardsAnalysis.compute [ first_stmt ];
 
@@ -20,8 +20,9 @@ let run_analysis () =
   Self.debug "Astral took %.2f seconds" !Astral_query.solver_time
 
 let run_with_stacktrace_printing () =
+  Printexc.record_backtrace true;
   try run_analysis ()
-  with Log.AbortFatal _ ->
+  with _ ->
     let stacktrace = Printexc.get_backtrace () in
     Self.warning "Stacktrace: \n%s" stacktrace
 

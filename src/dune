@@ -16,9 +16,17 @@
   (name slplugin)
   (public_name frama-c-slplugin.core)
   (modules :standard)
+  (modes native)
   (flags 
-    -open Frama_c_kernel
     :standard
+    -open Frama_c_kernel
+    -g
+  )
+  (ocamlopt_flags 
+  -Oclassic
+  -inline 100
+  -g
+  :standard 
   )
   (libraries 
     frama-c.kernel 
@@ -40,7 +48,6 @@
 )
 
 (plugin
-  (optional)
   (name slplugin)
   (libraries frama-c-slplugin.core)
   (site (frama-c plugins))

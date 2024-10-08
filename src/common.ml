@@ -6,6 +6,8 @@ let local_vars_for_stmt : (Cil_types.stmt, StringSet.t) Hashtbl.t ref =
   ref @@ Hashtbl.create 113
 
 let fail message = Self.fatal ~current:true message
+let warning message = Self.warning ~current:true message
+let debug message = Self.warning ~current:true message
 
 let mk_fresh_var_from (base : SSL.Variable.t) : SSL.Variable.t =
   SSL.Variable.mk_fresh

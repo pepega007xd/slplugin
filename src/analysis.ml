@@ -17,7 +17,7 @@ let compute_function : (stmt list -> unit) option ref = ref None
 type t = Formula.state
 
 let copy state = state
-let pretty fmt state = Printing.pp_state fmt state
+let pretty fmt state = Formula.pp_state fmt state
 let var = Preprocessing.varinfo_to_var
 
 (** this is the transfer function for instructions, we take the instr and previous state, and create new state *)
@@ -43,12 +43,12 @@ let doInstr _ (instr : instr) (prev_state : t) : t =
     | Preprocessing.Call (lhs_opt, func, params) ->
         prev_state
         |> List.concat_map (Transfer.call lhs_opt func (List.map var params))
-    | Preprocessing.ComplexInstr -> fail "unreachable"
+    | Preprocessing.ComplexInstr -> fail "unreachable analysis.ml:46"
     | Preprocessing.Ignored -> prev_state
   in
   Self.debug ~current:true ~dkey:Printing.do_instr
-    "previous state: %a\nnew state: %a" Printing.pp_state prev_state
-    Printing.pp_state new_state;
+    "previous state:\n%anew state:\n%a" Formula.pp_state prev_state
+    Formula.pp_state new_state;
   new_state
 
 (* [state] comes from doInstr, so it is actually the new state *)
@@ -84,24 +84,20 @@ let combinePredecessors _ ~old:(old_state : t) (new_state : t) : t option =
       (Formula.state_to_astral old_state)
   then (
     Self.debug ~current:true ~dkey:Printing.combine_predecessors
-      "old state: %a\nnew state: %a\n<state did not change>" Printing.pp_state
-      old_state Printing.pp_state new_state;
+      "old state:\n%anew state:\n%a<state did not change>" Formula.pp_state
+      old_state Formula.pp_state new_state;
     None)
   else (
     Self.debug ~current:true ~dkey:Printing.combine_predecessors
-      "old state: %a\nnew state: %a\ncombined state: %a" Printing.pp_state
-      old_state Printing.pp_state new_state Printing.pp_state joined_state;
+      "old state:\n%anew state:\n%acombined state: %a" Formula.pp_state
+      old_state Formula.pp_state new_state Formula.pp_state joined_state;
     Some joined_state)
 
 (* we need to filter the formulas of [state] for each branch to only those,
    which are satisfiable in each of the branches *)
-let doGuard _ (exp : exp) (state : t) : t guardaction * t guardaction =
+let doGuard _ (condition : exp) (state : t) : t guardaction * t guardaction =
   let th, el =
-    match exp.enode with
-    | Lval (Var ptr, NoOffset) ->
-        (* [if (a)] is equivalent to [if (a != NULL)] *)
-        ( List.map (Formula.add_distinct (var ptr) Formula.nil) state,
-          List.map (Formula.add_eq (var ptr) Formula.nil) state )
+    match condition.enode with
     | BinOp
         ( operator,
           { enode = Lval (Var lhs, NoOffset); _ },
@@ -123,8 +119,8 @@ let doGuard _ (exp : exp) (state : t) : t guardaction * t guardaction =
   let el = List.filter Astral_query.check_sat el in
 
   Self.debug ~current:true ~dkey:Printing.do_guard
-    "state: %a\nthen branch: %a\nelse branch: %a" Printing.pp_state state
-    Printing.pp_state th Printing.pp_state el;
+    "state:\n%athen branch:\n%aelse branch:\n%a" Formula.pp_state state
+    Formula.pp_state th Formula.pp_state el;
 
   let th = if List.is_empty th then GUnreachable else GUse th in
   let el = if List.is_empty el then GUnreachable else GUse el in
@@ -154,8 +150,8 @@ let doEdge (prev_stmt : stmt) (next_stmt : stmt) (state : t) : t =
   in
 
   Self.debug ~current:true ~dkey:Printing.do_edge
-    "original state: %a\nnew state: %a" Printing.pp_state state
-    Printing.pp_state modified;
+    "original state:\n%anew state:\n%a" Formula.pp_state state Formula.pp_state
+    modified;
   modified
 
 module StmtStartData = struct

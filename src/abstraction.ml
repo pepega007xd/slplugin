@@ -17,7 +17,7 @@ let convert_to_ls (formula : Formula.t) : Formula.t =
     match ptr with
     | PointsTo (src, LS_t dst) -> (src, dst)
     | LS ls -> (ls.first, ls.next)
-    | _ -> fail "unreachable"
+    | _ -> fail "unreachable abstraction.ml:20"
   in
 
   let do_abstraction (formula : Formula.t) (first_atom : Formula.atom) :
