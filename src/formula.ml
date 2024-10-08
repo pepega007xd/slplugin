@@ -185,6 +185,19 @@ let from_astral : SSL.t -> t = function
 
 (** Variables *)
 
+let get_vars (f : t) : var list =
+  List.concat_map
+    (function
+      | Eq vars -> vars
+      | Distinct (lhs, rhs) -> [ lhs; rhs ]
+      | PointsTo (src, LS_t next) -> [ src; next ]
+      | PointsTo (src, DLS_t (next, prev)) -> [ src; next; prev ]
+      | PointsTo (src, NLS_t (top, next)) -> [ src; next; top ]
+      | LS ls -> [ ls.first; ls.next ]
+      | DLS dls -> [ dls.first; dls.last; dls.prev; dls.next ]
+      | NLS nls -> [ nls.first; nls.top; nls.next ])
+    f
+
 let substitute (f : t) ~(var : var) ~(by : var) : t =
   f |> to_astral |> SSL.substitute ~var ~by |> from_astral
 
@@ -304,6 +317,7 @@ let remove_spatial_from (var : var) (f : t) : t =
 let change_pto_target (src : var) (field : Preprocessing.field_type)
     (new_target : var) (f : t) : t =
   (* TODO: make this general for all spatial atoms? *)
+  let f = make_var_explicit_src src f in
   let old_struct =
     get_spatial_atom_from src f |> Option.get |> function
     | PointsTo (_, old_struct) -> old_struct
@@ -337,7 +351,7 @@ let assert_allocated (var : var) (f : t) : unit =
 let rec materialize (var : var) (f : t) : t list =
   let fresh_var = mk_fresh_var_from var in
   let old_atom = get_spatial_atom_from var f |> Option.get in
-  let f = remove_atom old_atom f in
+  let f = f |> make_var_explicit_src var |> remove_atom old_atom in
 
   (* let open SSL.Struct in *)
   match old_atom with
@@ -414,8 +428,4 @@ let rec materialize (var : var) (f : t) : t list =
 let count_occurences_excl_distinct (var : var) (f : t) : int =
   f
   |> List.filter (function Distinct _ -> false | _ -> true)
-  |> to_astral |> SSL.get_vars |> Common.list_count var
-
-module Tests = struct
-  open Testing
-end
+  |> get_vars |> Common.list_count var

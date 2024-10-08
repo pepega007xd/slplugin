@@ -22,6 +22,9 @@ let var = Preprocessing.varinfo_to_var
 
 (** this is the transfer function for instructions, we take the instr and previous state, and create new state *)
 let doInstr _ (instr : instr) (prev_state : t) : t =
+  (* this allows Ivette to load the current state of analysis (messages, AST properties, etc) *)
+  Async.yield ();
+
   let new_state =
     match Preprocessing.get_instr_type instr with
     | Preprocessing.Assign_simple (lhs, rhs) ->
@@ -89,7 +92,7 @@ let combinePredecessors _ ~old:(old_state : t) (new_state : t) : t option =
     None)
   else (
     Self.debug ~current:true ~dkey:Printing.combine_predecessors
-      "old state:\n%anew state:\n%acombined state: %a" Formula.pp_state
+      "old state:\n%anew state:\n%acombined state:\n%a" Formula.pp_state
       old_state Formula.pp_state new_state Formula.pp_state joined_state;
     Some joined_state)
 
@@ -146,7 +149,7 @@ let doEdge (prev_stmt : stmt) (next_stmt : stmt) (state : t) : t =
     |> List.map reduce_equiv_classes
     |> List.map Abstraction.convert_to_ls
     |> List.map remove_distinct_only
-    |> deduplicate_states
+    |> List.map remove_single_eq |> deduplicate_states
   in
 
   Self.debug ~current:true ~dkey:Printing.do_edge

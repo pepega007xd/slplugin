@@ -452,6 +452,21 @@ let simplify_conditions =
       | _ -> DoChildren
   end
 
+let remove_useless_assignments =
+  object
+    inherit Visitor.frama_c_inplace
+
+    method! vstmt_aux (stmt : stmt) =
+      match stmt.skind with
+      | Instr instr ->
+          (match get_instr_type instr with
+          | Assign_simple (lhs, rhs) when lhs.vname = rhs.vname ->
+              stmt.skind <- Instr (Skip Cil_datatype.Location.unknown)
+          | _ -> ());
+          SkipChildren
+      | _ -> DoChildren
+  end
+
 let preprocess () =
   let file = Ast.get () in
 
@@ -463,6 +478,7 @@ let preprocess () =
   Visitor.visitFramacFileFunctions split_complex_stmts file;
   Visitor.visitFramacFileFunctions remove_non_list_stmts file;
   Visitor.visitFramacFileFunctions simplify_conditions file;
+  Visitor.visitFramacFileFunctions remove_useless_assignments file;
 
   (* this must run after adding statements *)
   Ast.mark_as_changed ();

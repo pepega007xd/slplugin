@@ -37,7 +37,7 @@ let remove_distinct_only (formula : Formula.t) : Formula.t =
   List.filter
     (function
       | Formula.Distinct (lhs, rhs) ->
-          (not @@ fresh_distinct_only lhs) || (not @@ fresh_distinct_only rhs)
+          not @@ (fresh_distinct_only lhs || fresh_distinct_only rhs)
       | _ -> true)
     formula
 
@@ -66,8 +66,22 @@ let remove_leaks (formula : Formula.t) : Formula.t =
       junk_atoms;
     valid_atoms)
 
+let remove_single_eq (formula : Formula.t) : Formula.t =
+  let to_remove =
+    formula |> Formula.get_equiv_classes
+    |> List.filter (fun eq_class -> List.length eq_class < 2)
+  in
+  List.fold_left
+    (fun formula eq_class -> Formula.remove_equiv_class eq_class formula)
+    formula to_remove
+
 module Tests = struct
   open Testing
+  open Formula
+
+  let%test "remove_distinct_only" =
+    let f = [ Distinct (nil, xf) ] |> remove_distinct_only in
+    assert_eq f []
 
   (* let%test_unit "reduce_equiv_classes" = *)
   (*   let input = SSL.mk_star [ SSL.mk_eq x y'; SSL.mk_eq y' nil ] in *)

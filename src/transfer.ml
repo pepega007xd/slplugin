@@ -59,7 +59,9 @@ let call (lhs_opt : Cil_types.varinfo option) (func : Cil_types.varinfo)
     in
     [
       formula |> Formula.substitute_by_fresh lhs |> Formula.add_atom pto;
-      Formula.add_eq lhs Formula.nil formula;
+      formula
+      |> Formula.substitute_by_fresh lhs
+      |> Formula.add_eq lhs Formula.nil;
     ]
   in
 
