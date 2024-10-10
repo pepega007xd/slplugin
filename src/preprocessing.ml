@@ -32,9 +32,8 @@ let replace_constants =
       | _ -> DoChildren
   end
 
-(* TODO: move from Preprocessing to Common *)
-type field_type = Next | Prev | Top | Data
 type list_type = Sll | Dll | Nl | Other
+type field_type = Next | Prev | Top | Data
 
 let rec get_self_and_sll_fields (structure : compinfo) :
     fieldinfo list * fieldinfo list =
@@ -96,8 +95,8 @@ and get_field_type (field : fieldinfo) : field_type =
   (* SLL *)
   | [ next ], [] when field.forder = next.forder -> Next
   (* DLL *)
-  | [ prev; _ ], [] when field.forder = prev.forder -> Prev
-  | [ _; next ], [] when field.forder = next.forder -> Next
+  | [ next; _ ], [] when field.forder = next.forder -> Next
+  | [ _; prev ], [] when field.forder = prev.forder -> Prev
   (* NL *)
   | [ top ], [ _ ] when field.forder = top.forder -> Top
   | [ _ ], [ next ] when field.forder = next.forder -> Next
@@ -397,18 +396,20 @@ let remove_non_list_stmts =
           let loc = Cil_datatype.Instr.loc instr in
           let skip = Skip loc in
           let assert_allocated param =
-            Ast_info.mkassign (Var const_var, NoOffset) (evar param)
-              Cil_datatype.Location.unknown
+            Ast_info.mkassign (Var const_var, NoOffset) (evar param) loc
+          in
+          let is_list_type var =
+            var.vname = null_var_name || is_list_type var.vtype
           in
           let new_stmtkind =
             match get_instr_type instr with
-            | Assign_simple (lhs, _) when is_list_type lhs.vtype -> instr
+            | Assign_simple (lhs, _) when is_list_type lhs -> instr
             | Assign_simple (_, _) -> skip
-            | Assign_rhs_field (lhs, _, _) when is_list_type lhs.vtype -> instr
-            | Assign_rhs_field (_, rhs, _) when is_list_type rhs.vtype ->
+            | Assign_rhs_field (lhs, _, _) when is_list_type lhs -> instr
+            | Assign_rhs_field (_, rhs, _) when is_list_type rhs ->
                 assert_allocated rhs
-            | Assign_lhs_field (_, _, rhs) when is_list_type rhs.vtype -> instr
-            | Assign_lhs_field (lhs, _, _) when is_list_type lhs.vtype ->
+            | Assign_lhs_field (_, _, rhs) when is_list_type rhs -> instr
+            | Assign_lhs_field (lhs, _, _) when is_list_type lhs ->
                 assert_allocated lhs
             | _ -> instr
           in
@@ -461,7 +462,7 @@ let remove_useless_assignments =
       | Instr instr ->
           (match get_instr_type instr with
           | Assign_simple (lhs, rhs) when lhs.vname = rhs.vname ->
-              stmt.skind <- Instr (Skip Cil_datatype.Location.unknown)
+              stmt.skind <- Instr (Skip (Cil_datatype.Instr.loc instr))
           | _ -> ());
           SkipChildren
       | _ -> DoChildren

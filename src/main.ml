@@ -4,7 +4,7 @@ open Astral
 module ForwardsAnalysis = Forwards (Analysis)
 
 let run_analysis () =
-  Analysis.compute_function := Some ForwardsAnalysis.compute;
+  Transfer.compute_function := Some ForwardsAnalysis.compute;
   Preprocessing.preprocess ();
 
   Astral_query.init ();
@@ -12,7 +12,7 @@ let run_analysis () =
   let main, _ = Globals.entry_point () in
   let first_stmt = Kernel_function.find_first_stmt main in
 
-  Hashtbl.add !Analysis.results first_stmt [ [] ];
+  Hashtbl.add !Transfer.results first_stmt [ [] ];
 
   ForwardsAnalysis.compute [ first_stmt ];
 
@@ -22,9 +22,10 @@ let run_analysis () =
 let run_with_stacktrace_printing () =
   Printexc.record_backtrace true;
   try run_analysis ()
-  with _ ->
-    let stacktrace = Printexc.get_backtrace () in
-    Self.warning "Stacktrace: \n%s" stacktrace
+  with e ->
+    let backtrace = Printexc.get_backtrace () in
+    Self.warning "EXCEPTION: %s" (Printexc.to_string e);
+    Self.warning "BACKTRACE: \n%s" backtrace
 
 let () =
   Boot.Main.extend (fun () ->

@@ -4,15 +4,8 @@ open Cil_types
 open Common
 open Dataflow2
 
-(* state of dataflow analysis is stored here *)
-let results : (Cil_types.stmt, Formula.state) Hashtbl.t ref =
-  ref (Hashtbl.create 113)
-
 let name = "slplugin"
 let debug = true (* TODO: what does this do??? *)
-
-(** for running dataflow analysis recursively on other functions *)
-let compute_function : (stmt list -> unit) option ref = ref None
 
 type t = Formula.state
 
@@ -148,6 +141,8 @@ let doEdge (prev_stmt : stmt) (next_stmt : stmt) (state : t) : t =
     |> List.map remove_leaks
     |> List.map reduce_equiv_classes
     |> List.map Abstraction.convert_to_ls
+    |> List.map Abstraction.convert_to_dls
+    |> List.map Abstraction.convert_to_nls
     |> List.map remove_distinct_only
     |> List.map remove_single_eq |> deduplicate_states
   in
@@ -160,6 +155,7 @@ let doEdge (prev_stmt : stmt) (next_stmt : stmt) (state : t) : t =
 module StmtStartData = struct
   type data = t
 
+  let results = Transfer.results
   let clear () = Hashtbl.clear !results
   let mem = Hashtbl.mem !results
   let find = Hashtbl.find !results

@@ -2,14 +2,17 @@ open Astral
 open Common
 
 type var = SSL.Variable.t
+type ls = { first : var; next : var; min_len : int }
+type dls = { first : var; last : var; prev : var; next : var; min_len : int }
+type nls = { first : var; top : var; next : var; min_len : int }
 
 type atom =
   | Eq of var list
   | Distinct of var * var
   | PointsTo of var * SSL.Struct.t
-  | LS of { first : var; next : var; min_len : int }
-  | DLS of { first : var; last : var; prev : var; next : var; min_len : int }
-  | NLS of { first : var; top : var; next : var; min_len : int }
+  | LS of ls
+  | DLS of dls
+  | NLS of nls
 
 type t = atom list
 
@@ -239,33 +242,6 @@ let add_equiv_class (equiv_class : var list) (f : t) =
 let remove_equiv_class (equiv_class : var list) (f : t) =
   remove_atom (Eq equiv_class) f
 
-(** Pure atoms *)
-
-let add_eq (lhs : var) (rhs : var) (f : t) : t =
-  let equiv_classes = get_equiv_classes f in
-  let lhs_class = List.find_opt (List.mem lhs) equiv_classes in
-  let rhs_class = List.find_opt (List.mem rhs) equiv_classes in
-
-  match (lhs_class, rhs_class) with
-  (* both variables are already in the same equiv class - do nothing *)
-  | Some lhs_class, Some rhs_class when lhs_class = rhs_class -> f
-  (* each variable is already in a different equiv class - merge classes *)
-  | Some lhs_class, Some rhs_class ->
-      f
-      |> remove_equiv_class lhs_class
-      |> remove_equiv_class rhs_class
-      |> add_equiv_class (lhs_class @ rhs_class)
-  (* one of the variables is in no existing class - add it to the existing one *)
-  | Some lhs_class, None ->
-      f |> remove_equiv_class lhs_class |> add_equiv_class (rhs :: lhs_class)
-  | None, Some rhs_class ->
-      f |> remove_equiv_class rhs_class |> add_equiv_class (lhs :: rhs_class)
-  (* no variable is in an existing class - create a new class *)
-  | _ -> f |> add_equiv_class [ lhs; rhs ]
-
-let add_distinct (lhs : var) (rhs : var) : t -> t =
-  add_atom (Distinct (lhs, rhs))
-
 (** Spatial atoms *)
 
 let is_spatial_source (src : var) : atom -> bool = function
@@ -290,24 +266,23 @@ let make_var_explicit_src (var : var) (f : t) : t =
 let get_spatial_atom_from (src : var) (f : t) : atom option =
   f |> make_var_explicit_src src |> List.find_opt (is_spatial_source src)
 
+let get_target_of_atom (field : Preprocessing.field_type) (atom : atom) : var =
+  match (atom, field) with
+  | PointsTo (_, LS_t next), Next -> next
+  | PointsTo (_, DLS_t (next, _)), Next -> next
+  | PointsTo (_, DLS_t (_, prev)), Prev -> prev
+  | PointsTo (_, NLS_t (top, _)), Top -> top
+  | PointsTo (_, NLS_t (_, next)), Next -> next
+  | LS ls, Next -> ls.next
+  | DLS dls, Next -> dls.next
+  | DLS dls, Prev -> dls.prev
+  | NLS nls, Top -> nls.top
+  | NLS nls, Next -> nls.next
+  | _ -> fail "TODO: what to do with Data field?"
+
 let get_spatial_target (var : var) (field : Preprocessing.field_type) (f : t) :
     var option =
-  get_spatial_atom_from var f |> function
-  | Some spatial_atom ->
-      Some
-        (match (spatial_atom, field) with
-        | PointsTo (_, LS_t next), Next -> next
-        | PointsTo (_, DLS_t (next, _)), Next -> next
-        | PointsTo (_, DLS_t (_, prev)), Prev -> prev
-        | PointsTo (_, NLS_t (top, _)), Top -> top
-        | PointsTo (_, NLS_t (_, next)), Next -> next
-        | LS ls, Next -> ls.next
-        | DLS dls, Next -> dls.next
-        | DLS dls, Prev -> dls.prev
-        | NLS nls, Top -> nls.top
-        | NLS nls, Next -> nls.next
-        | _ -> fail "TODO: what to do with Data field?")
-  | None -> None
+  get_spatial_atom_from var f |> Option.map (get_target_of_atom field)
 
 let remove_spatial_from (var : var) (f : t) : t =
   get_spatial_atom_from var f |> function
@@ -346,14 +321,61 @@ let assert_allocated (var : var) (f : t) : unit =
   if get_spatial_atom_from var f |> Option.is_none then
     fail "Variable %a is not allocated in %a" SSL.Variable.pp var pp_formula f
 
+(** Pure atoms *)
+
+let add_eq (lhs : var) (rhs : var) (f : t) : t =
+  let equiv_classes = get_equiv_classes f in
+  let lhs_class = List.find_opt (List.mem lhs) equiv_classes in
+  let rhs_class = List.find_opt (List.mem rhs) equiv_classes in
+
+  match (lhs_class, rhs_class) with
+  (* both variables are already in the same equiv class - do nothing *)
+  | Some lhs_class, Some rhs_class when lhs_class = rhs_class -> f
+  (* each variable is already in a different equiv class - merge classes *)
+  | Some lhs_class, Some rhs_class ->
+      f
+      |> remove_equiv_class lhs_class
+      |> remove_equiv_class rhs_class
+      |> add_equiv_class (lhs_class @ rhs_class)
+  (* one of the variables is in no existing class - add it to the existing one *)
+  | Some lhs_class, None ->
+      f |> remove_equiv_class lhs_class |> add_equiv_class (rhs :: lhs_class)
+  | None, Some rhs_class ->
+      f |> remove_equiv_class rhs_class |> add_equiv_class (lhs :: rhs_class)
+  (* no variable is in an existing class - create a new class *)
+  | _ -> f |> add_equiv_class [ lhs; rhs ]
+
+let is_eq (lhs : var) (rhs : var) (f : t) : bool =
+  if lhs = rhs then true
+  else
+    f |> get_equiv_classes
+    |> List.find_opt (List.mem lhs)
+    |> Option.map (List.exists (( = ) rhs))
+    |> Option.value ~default:false
+
+let add_distinct (lhs : var) (rhs : var) (f : t) : t =
+  let try_increase_bound lhs rhs f =
+    let f = make_var_explicit_src lhs f in
+    match get_spatial_atom_from lhs f with
+    | Some (LS ls) when ls.min_len = 0 && is_eq ls.next rhs f ->
+        Some (f |> remove_atom (LS ls) |> add_atom (LS { ls with min_len = 1 }))
+    | _ -> None
+  in
+  match (try_increase_bound lhs rhs f, try_increase_bound rhs lhs f) with
+  | Some f, _ -> f
+  | _, Some f -> f
+  | _ -> f |> add_atom (Distinct (lhs, rhs))
+
+(** Materialization *)
+
 (** transforms [formula] so that [var] is a part of a points-to atom, not a list segment,
    multiple formulas can be produced, representing different lengths of [ls] (1, 2+) *)
 let rec materialize (var : var) (f : t) : t list =
   let fresh_var = mk_fresh_var_from var in
+  let f = make_var_explicit_src var f in
   let old_atom = get_spatial_atom_from var f |> Option.get in
-  let f = f |> make_var_explicit_src var |> remove_atom old_atom in
+  let f = f |> remove_atom old_atom in
 
-  (* let open SSL.Struct in *)
   match old_atom with
   | PointsTo _ -> [ add_atom old_atom f ]
   (* ls has minimum length greater than zero -> just decrement and split off PointsTo *)

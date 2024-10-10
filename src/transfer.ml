@@ -1,6 +1,18 @@
 open Astral
 open Common
 
+type summary_input = Formula.var list * Cil_types.stmt
+
+let function_summaries : (summary_input, Formula.state) Hashtbl.t ref =
+  ref @@ Hashtbl.create 113
+
+(** for running dataflow analysis recursively on other functions *)
+let compute_function : (Cil_types.stmt list -> unit) option ref = ref None
+
+(* state of dataflow analysis is stored here *)
+let results : (Cil_types.stmt, Formula.state) Hashtbl.t ref =
+  ref (Hashtbl.create 113)
+
 (** transfer function for [var = var;] *)
 let assign (lhs : SSL.Variable.t) (rhs : SSL.Variable.t) (formula : Formula.t) :
     Formula.t =
@@ -82,7 +94,16 @@ let call (lhs_opt : Cil_types.varinfo option) (func : Cil_types.varinfo)
   | "free", [ var ] ->
       formula |> Formula.materialize var
       |> List.map (Formula.remove_spatial_from var)
-  | _ -> fail "function calls are not implemented"
+  | _, _ ->
+      let func = Kernel_function.find_defining_kf func |> Option.get in
+      let first_stmt = Kernel_function.find_first_stmt func in
+      let return_stmt = Kernel_function.find_return func in
+
+      Hashtbl.add !results first_stmt [ formula ];
+
+      let compute_function = !compute_function |> Option.get in
+      compute_function [ first_stmt ];
+      Hashtbl.find !results return_stmt
 
 module Tests = struct
   open Testing

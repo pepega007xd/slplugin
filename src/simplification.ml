@@ -80,7 +80,7 @@ module Tests = struct
   open Formula
 
   let%test "remove_distinct_only" =
-    let f = [ Distinct (nil, xf) ] |> remove_distinct_only in
+    let f = [ Distinct (nil, x') ] |> remove_distinct_only in
     assert_eq f []
 
   (* let%test_unit "reduce_equiv_classes" = *)
