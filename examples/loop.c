@@ -28,3 +28,5 @@ int main() {
 
     return 0;
 }
+
+int a() { void *a = (int *)(main + 4); }

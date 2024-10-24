@@ -1,4 +1,5 @@
 _build/
 cfa.dot
-astral_queries
+astral_queries/
 .ivette
+test.c

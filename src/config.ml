@@ -1,11 +1,11 @@
 module Self = Plugin.Register (struct
   let name = "Shape analysis"
-  let shortname = "SLplugin"
+  let shortname = "sl"
   let help = ""
 end)
 
 module Enable_analysis = Self.False (struct
-  let option_name = "-slplugin"
+  let option_name = "-sl"
   let help = "Run analysis"
 end)
 
@@ -16,10 +16,10 @@ end)
 
 module Use_cvc5 = Self.False (struct
   let option_name = "-sl-use-cvc5"
-  let help = "Use CVC5 in Astral (default is Z3)"
+  let help = "Use CVC5 in Astral"
 end)
 
-module Debug_output = Self.False (struct
-  let option_name = "-sl-debug"
-  let help = "Print debug progress of analysis"
+module Use_Bitvectors = Self.False (struct
+  let option_name = "-sl-use-bitvectors"
+  let help = "Set Astral's encoding to bitvectors"
 end)

@@ -15,19 +15,39 @@
 (library
   (name slplugin)
   (public_name frama-c-slplugin.core)
-  (flags -open Frama_c_kernel :standard)
-  (libraries frama-c.kernel frama-c-server.core astral)
+  (modules :standard)
+  (modes native)
+  (flags 
+    :standard
+    -open Frama_c_kernel
+    -g
+  )
+  (ocamlopt_flags 
+  -Oclassic
+  -inline 100
+  -g
+  :standard 
+  )
+  (libraries 
+    frama-c.kernel 
+    frama-c-server.core 
+    astral
+  )
   (inline_tests 
     ; this is required to run inline tests in frama-c plugin
     ; https://git.frama-c.com/pub/frama-c/-/issues/2691
     (libraries frama-c.init.cmdline)
     (flags (-stop-on-error))
   )
-  (preprocess (pps ppx_assert ppx_inline_test))
+  (preprocess 
+    (pps
+      ppx_assert 
+      ppx_inline_test
+    )
+  )
 )
 
 (plugin
-  (optional)
   (name slplugin)
   (libraries frama-c-slplugin.core)
   (site (frama-c plugins))
