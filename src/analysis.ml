@@ -29,7 +29,6 @@ let doInstr _ (instr : instr) (prev_state : t) : t =
              (Transfer.assign_rhs_field (var lhs) (var rhs)
                 (Preprocessing.get_field_type rhs_field))
     | Preprocessing.Assign_lhs_field (lhs, lhs_field, rhs) ->
-        (*TODO removwe*)
         prev_state
         |> List.concat_map (Formula.materialize (var lhs))
         |> List.map
@@ -38,7 +37,8 @@ let doInstr _ (instr : instr) (prev_state : t) : t =
                 (var rhs))
     | Preprocessing.Call (lhs_opt, func, params) ->
         prev_state
-        |> List.concat_map (Transfer.call lhs_opt func (List.map var params))
+        |> List.concat_map
+             (Transfer.call (Option.map var lhs_opt) func (List.map var params))
     | Preprocessing.ComplexInstr -> fail "unreachable analysis.ml:46"
     | Preprocessing.Ignored -> prev_state
   in
@@ -127,24 +127,36 @@ let doStmt (_ : stmt) (_ : t) : t stmtaction = SDefault
 
 (* simplify formulas and filter out unsatisfiable ones *)
 let doEdge (prev_stmt : stmt) (next_stmt : stmt) (state : t) : t =
-  let prev_locals = Hashtbl.find !local_vars_for_stmt prev_stmt in
-  let new_locals = Hashtbl.find !local_vars_for_stmt next_stmt in
   let end_of_scope_locals =
-    StringSet.diff prev_locals new_locals |> StringSet.to_list
+    Kernel_function.blocks_closed_by_edge prev_stmt next_stmt
+    |> List.concat_map (fun block -> block.blocals)
+    |> List.map Preprocessing.varinfo_to_var
+  in
+
+  let do_abstraction (state : t) : t =
+    match next_stmt.skind with
+    | Loop _ ->
+        state
+        |> List.map Abstraction.convert_to_ls
+        |> List.map Abstraction.convert_to_dls
+        |> List.map Abstraction.convert_to_nls
+    | _ -> state
   in
 
   let open Simplification in
   let modified =
     state
     |> List.filter Astral_query.check_sat
-    |> List.map (Formula.convert_vars_to_fresh end_of_scope_locals)
+    |> List.map (convert_vars_to_fresh end_of_scope_locals)
     |> List.map remove_leaks
     |> List.map reduce_equiv_classes
-    |> List.map Abstraction.convert_to_ls
-    |> List.map Abstraction.convert_to_dls
-    |> List.map Abstraction.convert_to_nls
+    |> do_abstraction
     |> List.map remove_distinct_only
-    |> List.map remove_single_eq |> deduplicate_states
+    |> List.map remove_single_eq
+    (* deduplicate atoms syntactically *)
+    |> List.map (List.sort_uniq compare)
+    (* deduplicate formulas syntactically *)
+    |> List.sort_uniq compare
   in
 
   Self.debug ~current:true ~dkey:Printing.do_edge
@@ -167,6 +179,11 @@ end
 
 module Tests = struct
   open Testing
+
+  let%test "atom_deduplication" =
+    let input = [ Distinct (x, y); Distinct (x, y); Distinct (x, y) ] in
+    let expected = [ Distinct (x, y) ] in
+    assert_eq (List.sort_uniq compare input) expected
 
   let changed joined_state old_state =
     not

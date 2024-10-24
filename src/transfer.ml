@@ -44,13 +44,12 @@ let assign_lhs_field (lhs : SSL.Variable.t)
   Formula.change_pto_target lhs lhs_field rhs formula
 
 (** transfer function for function calls *)
-let call (lhs_opt : Cil_types.varinfo option) (func : Cil_types.varinfo)
-    (params : SSL.Variable.t list) (formula : Formula.t) : Formula.state =
+let call (lhs_opt : Formula.var option) (func : Cil_types.varinfo)
+    (args : Formula.var list) (formula : Formula.t) : Formula.state =
   let get_allocation (init_vars_to_null : bool) : Formula.state =
     let lhs, pto =
       match lhs_opt with
       | Some lhs -> (
-          let lhs = Preprocessing.varinfo_to_var lhs in
           let sort = SSL.Variable.get_sort lhs in
           let fresh () =
             if init_vars_to_null then Formula.nil
@@ -77,7 +76,7 @@ let call (lhs_opt : Cil_types.varinfo option) (func : Cil_types.varinfo)
     ]
   in
 
-  match (func.vname, params) with
+  match (func.vname, args) with
   | "malloc", _ -> get_allocation false
   | "calloc", _ -> get_allocation true
   | "realloc", var :: _ ->
@@ -94,16 +93,44 @@ let call (lhs_opt : Cil_types.varinfo option) (func : Cil_types.varinfo)
   | "free", [ var ] ->
       formula |> Formula.materialize var
       |> List.map (Formula.remove_spatial_from var)
-  | _, _ ->
-      let func = Kernel_function.find_defining_kf func |> Option.get in
+  | _, args ->
+      let func = Globals.Functions.get func in
+      let fundec = Kernel_function.get_definition func in
       let first_stmt = Kernel_function.find_first_stmt func in
       let return_stmt = Kernel_function.find_return func in
+
+      let params = fundec.sformals |> List.map Preprocessing.varinfo_to_var in
+      let locals =
+        params @ (fundec.slocals |> List.map Preprocessing.varinfo_to_var)
+      in
+
+      (* add function's parameter names to formula *)
+      let formula =
+        List.fold_left2
+          (fun formula var param -> Formula.add_eq var param formula)
+          formula params args
+      in
 
       Hashtbl.add !results first_stmt [ formula ];
 
       let compute_function = !compute_function |> Option.get in
       compute_function [ first_stmt ];
-      Hashtbl.find !results return_stmt
+
+      let result_state = Hashtbl.find !results return_stmt in
+
+      let result_state =
+        match lhs_opt with
+        | Some lhs ->
+            let retres =
+              SSL.Variable.mk "__retres" (SSL.Variable.get_sort lhs)
+            in
+            result_state
+            |> List.map (Formula.substitute_by_fresh lhs)
+            |> List.map (Formula.substitute ~var:retres ~by:lhs)
+        | None -> result_state
+      in
+
+      List.map (Simplification.convert_vars_to_fresh locals) result_state
 
 module Tests = struct
   open Testing

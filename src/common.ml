@@ -1,9 +1,5 @@
 open Config
 open Astral
-module StringSet = Set.Make (String)
-
-let local_vars_for_stmt : (Cil_types.stmt, StringSet.t) Hashtbl.t ref =
-  ref @@ Hashtbl.create 113
 
 let fail message = Self.fatal ~current:true message
 let warning message = Self.warning ~current:true message

@@ -102,32 +102,6 @@ and get_field_type (field : fieldinfo) : field_type =
   | [ _ ], [ next ] when field.forder = next.forder -> Next
   | _ -> Data
 
-(* TODO: find function in frama-c which does this *)
-(* kernel function -> val find_enclosing_block : Cil_types.stmt -> Cil_types.block *)
-let get_local_vars =
-  object
-    inherit Visitor.frama_c_inplace
-    val mutable locals : string list list = []
-
-    method! vblock (block : block) =
-      let this_block_locals =
-        List.map (fun local -> local.vname) block.blocals
-      in
-      locals <- this_block_locals :: locals;
-      List.iter
-        (fun stmt ->
-          Hashtbl.add !local_vars_for_stmt stmt
-          @@ StringSet.of_list @@ List.flatten locals)
-        block.bstmts;
-      ChangeDoChildrenPost
-        ( block,
-          fun block ->
-            (match locals with
-            | _ :: rest -> locals <- rest
-            | [] -> Common.fail "list of scopes should not be empty");
-            block )
-  end
-
 let unique_counter = ref 0
 
 let get_unique_name (name : string) : string =
@@ -484,6 +458,4 @@ let preprocess () =
   (* this must run after adding statements *)
   Ast.mark_as_changed ();
   Cfg.clearFileCFG file;
-  Cfg.computeFileCFG file;
-
-  Visitor.visitFramacFileFunctions get_local_vars file
+  Cfg.computeFileCFG file

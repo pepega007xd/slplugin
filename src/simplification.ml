@@ -75,6 +75,12 @@ let remove_single_eq (formula : Formula.t) : Formula.t =
     (fun formula eq_class -> Formula.remove_equiv_class eq_class formula)
     formula to_remove
 
+let convert_vars_to_fresh (vars : Formula.var list) (formula : Formula.t) :
+    Formula.t =
+  List.fold_left
+    (fun formula var -> Formula.substitute_by_fresh var formula)
+    formula vars
+
 module Tests = struct
   open Testing
   open Formula

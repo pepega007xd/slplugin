@@ -207,15 +207,6 @@ let substitute (f : t) ~(var : var) ~(by : var) : t =
 let substitute_by_fresh (var : var) : t -> t =
   substitute ~var ~by:(mk_fresh_var_from var)
 
-let convert_vars_to_fresh (var_names : string list) (formula : t) : t =
-  List.fold_left
-    (fun formula var_name ->
-      (* TODO: get proper variable sorts (or just subtitute all of them?) *)
-      substitute formula
-        ~var:(SSL.Variable.mk var_name Sort.loc_ls)
-        ~by:(SSL.Variable.mk_fresh var_name Sort.loc_ls))
-    formula var_names
-
 let swap_vars (var1 : var) (var2 : var) (f : t) =
   let tmp_name = SSL.Variable.mk "__tmp_var" Sort.loc_nil in
   f
@@ -278,7 +269,7 @@ let get_target_of_atom (field : Preprocessing.field_type) (atom : atom) : var =
   | DLS dls, Prev -> dls.prev
   | NLS nls, Top -> nls.top
   | NLS nls, Next -> nls.next
-  | _ -> fail "TODO: what to do with Data field?"
+  | _ -> fail "unreachable formula.ml:272"
 
 let get_spatial_target (var : var) (field : Preprocessing.field_type) (f : t) :
     var option =
@@ -291,7 +282,6 @@ let remove_spatial_from (var : var) (f : t) : t =
 
 let change_pto_target (src : var) (field : Preprocessing.field_type)
     (new_target : var) (f : t) : t =
-  (* TODO: make this general for all spatial atoms? *)
   let f = make_var_explicit_src src f in
   let old_struct =
     get_spatial_atom_from src f |> Option.get |> function
