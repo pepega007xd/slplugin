@@ -83,9 +83,7 @@ let call (lhs_opt : Formula.var option) (func : Cil_types.varinfo)
       (* realloc changes the pointer value => all references to `var` are now dangling *)
       Formula.materialize var formula
       |> List.map (fun formula ->
-             let spatial_atom =
-               Formula.get_spatial_atom_from var formula |> Option.get
-             in
+             let spatial_atom = Formula.get_spatial_atom_from var formula in
              formula
              |> Formula.remove_spatial_from var
              |> Formula.substitute_by_fresh var

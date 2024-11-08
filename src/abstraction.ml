@@ -5,7 +5,7 @@ let is_unique_fresh (var : Formula.var) (formula : Formula.t) : bool =
 
 let is_in_formula (src : Formula.var) (dst : Formula.var)
     (field : Preprocessing.field_type) (formula : Formula.t) : bool =
-  Formula.get_spatial_atom_from src formula
+  Formula.get_spatial_atom_from_opt src formula
   |> Option.map (fun atom ->
          Formula.get_target_of_atom field atom |> fun atom_dst ->
          Formula.is_eq atom_dst dst formula)
@@ -21,7 +21,7 @@ let convert_to_ls (formula : Formula.t) : Formula.t =
   let do_abstraction (formula : Formula.t) (first_ls : Formula.ls) : Formula.t =
     match
       formula
-      |> Formula.get_spatial_atom_from first_ls.next
+      |> Formula.get_spatial_atom_from_opt first_ls.next
       |> Option.map atom_to_ls |> Option.join
     with
     | Some second_ls
@@ -61,7 +61,7 @@ let convert_to_dls (formula : Formula.t) : Formula.t =
       =
     let second_dls =
       formula
-      |> Formula.get_spatial_atom_from first_dls.next
+      |> Formula.get_spatial_atom_from_opt first_dls.next
       |> Option.map atom_to_dls |> Option.join
     in
 
@@ -69,7 +69,7 @@ let convert_to_dls (formula : Formula.t) : Formula.t =
       Option.map
         (fun (second_dls : Formula.dls) ->
           formula
-          |> Formula.get_spatial_atom_from second_dls.next
+          |> Formula.get_spatial_atom_from_opt second_dls.next
           |> Option.map atom_to_dls)
         second_dls
       |> Option.join |> Option.join
@@ -121,7 +121,7 @@ let convert_to_nls (formula : Formula.t) : Formula.t =
       =
     match
       formula
-      |> Formula.get_spatial_atom_from first_nls.top
+      |> Formula.get_spatial_atom_from_opt first_nls.top
       |> Option.map atom_to_nls |> Option.join
     with
     | Some second_nls

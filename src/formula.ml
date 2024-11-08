@@ -254,8 +254,14 @@ let make_var_explicit_src (var : var) (f : t) : t =
       |> Option.value ~default:f
   | None -> f
 
-let get_spatial_atom_from (src : var) (f : t) : atom option =
+let get_spatial_atom_from_opt (src : var) (f : t) : atom option =
   f |> make_var_explicit_src src |> List.find_opt (is_spatial_source src)
+
+let get_spatial_atom_from (src : var) (f : t) : atom =
+  get_spatial_atom_from_opt src f |> function
+  | Some atom -> atom
+  | None ->
+      fail "Variable %a is not allocated in %a" SSL.Variable.pp src pp_formula f
 
 let get_target_of_atom (field : Preprocessing.field_type) (atom : atom) : var =
   match (atom, field) with
@@ -273,10 +279,10 @@ let get_target_of_atom (field : Preprocessing.field_type) (atom : atom) : var =
 
 let get_spatial_target (var : var) (field : Preprocessing.field_type) (f : t) :
     var option =
-  get_spatial_atom_from var f |> Option.map (get_target_of_atom field)
+  get_spatial_atom_from_opt var f |> Option.map (get_target_of_atom field)
 
 let remove_spatial_from (var : var) (f : t) : t =
-  get_spatial_atom_from var f |> function
+  get_spatial_atom_from_opt var f |> function
   | Some original_atom -> remove_atom original_atom f
   | None -> f
 
@@ -284,7 +290,7 @@ let change_pto_target (src : var) (field : Preprocessing.field_type)
     (new_target : var) (f : t) : t =
   let f = make_var_explicit_src src f in
   let old_struct =
-    get_spatial_atom_from src f |> Option.get |> function
+    match get_spatial_atom_from src f with
     | PointsTo (_, old_struct) -> old_struct
     | _ -> fail "unreachable formula.ml:259"
   in
@@ -308,8 +314,7 @@ let get_spatial_atom_min_length : atom -> int = function
   | _ -> fail "unreachable formula.ml:279"
 
 let assert_allocated (var : var) (f : t) : unit =
-  if get_spatial_atom_from var f |> Option.is_none then
-    fail "Variable %a is not allocated in %a" SSL.Variable.pp var pp_formula f
+  ignore @@ get_spatial_atom_from var f
 
 (** Pure atoms *)
 
@@ -346,7 +351,7 @@ let is_eq (lhs : var) (rhs : var) (f : t) : bool =
 let add_distinct (lhs : var) (rhs : var) (f : t) : t =
   let try_increase_bound lhs rhs f =
     let f = make_var_explicit_src lhs f in
-    match get_spatial_atom_from lhs f with
+    match get_spatial_atom_from_opt lhs f with
     | Some (LS ls) when ls.min_len = 0 && is_eq ls.next rhs f ->
         Some (f |> remove_atom (LS ls) |> add_atom (LS { ls with min_len = 1 }))
     | _ -> None
@@ -363,7 +368,7 @@ let add_distinct (lhs : var) (rhs : var) (f : t) : t =
 let rec materialize (var : var) (f : t) : t list =
   let fresh_var = mk_fresh_var_from var in
   let f = make_var_explicit_src var f in
-  let old_atom = get_spatial_atom_from var f |> Option.get in
+  let old_atom = get_spatial_atom_from var f in
   let f = f |> remove_atom old_atom in
 
   match old_atom with
