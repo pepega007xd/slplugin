@@ -23,3 +23,11 @@ module Use_Bitvectors = Self.False (struct
   let option_name = "-sl-use-bitvectors"
   let help = "Set Astral's encoding to bitvectors"
 end)
+
+module Abstraction_everywhere = Self.False (struct
+  let option_name = "-sl-abstraction-everywhere"
+
+  let help =
+    "Do abstraction between all statements (default: abstraction is done on \
+     loop return)"
+end)

@@ -134,13 +134,17 @@ let doEdge (prev_stmt : stmt) (next_stmt : stmt) (state : t) : t =
   in
 
   let do_abstraction (state : t) : t =
-    match next_stmt.skind with
-    | Loop _ ->
-        state
-        |> List.map Abstraction.convert_to_ls
-        |> List.map Abstraction.convert_to_dls
-        |> List.map Abstraction.convert_to_nls
-    | _ -> state
+    state
+    |> List.map Abstraction.convert_to_ls
+    |> List.map Abstraction.convert_to_dls
+    |> List.map Abstraction.convert_to_nls
+  in
+
+  let do_abstraction : t -> t =
+    match prev_stmt.skind with
+    | _ when Config.Abstraction_everywhere.get () -> do_abstraction
+    | Loop _ -> do_abstraction
+    | _ -> Fun.id
   in
 
   let open Simplification in
@@ -153,6 +157,7 @@ let doEdge (prev_stmt : stmt) (next_stmt : stmt) (state : t) : t =
     |> do_abstraction
     |> List.map remove_distinct_only
     |> List.map remove_single_eq
+    |> List.map (Formula.remove_spatial_from Formula.nil)
     (* deduplicate atoms syntactically *)
     |> List.map (List.sort_uniq compare)
     (* deduplicate formulas syntactically *)
