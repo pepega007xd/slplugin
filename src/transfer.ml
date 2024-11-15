@@ -97,20 +97,54 @@ let call (lhs_opt : Formula.var option) (func : Cil_types.varinfo)
       let fundec = Kernel_function.get_definition func in
       let first_stmt = Kernel_function.find_first_stmt func in
       let return_stmt = Kernel_function.find_return func in
-
       let params = fundec.sformals |> List.map Preprocessing.varinfo_to_var in
       let locals =
         params @ (fundec.slocals |> List.map Preprocessing.varinfo_to_var)
       in
 
-      (* add function's parameter names to formula *)
-      let formula =
+      let reachable, unreachable = Formula.split_by_reachability args formula in
+      let reachable_vars =
+        reachable |> Formula.get_fresh_vars
+        |> List.filter (fun var -> Formula.is_spatial_target var unreachable)
+      in
+
+      let get_anchor (var : Formula.var) : Formula.var =
+        let name = SSL.Variable.get_name var in
+        SSL.Variable.mk
+          (* '$' is used not to collide with an existing var name, eg. x!0 -> x_0,
+             it has no special meaning, x$0 behaves like a regular program variable *)
+          ("A_" ^ String.map (function '!' -> '$' | c -> c) name)
+          (SSL.Variable.get_sort var)
+      in
+
+      let rename_anchors (formula : Formula.t) =
         List.fold_left2
-          (fun formula var param -> Formula.add_eq var param formula)
+          (fun formula param arg ->
+            Formula.substitute ~var:(get_anchor param) ~by:arg formula)
           formula params args
       in
-      let reachable, unreachable =
-        Formula.split_by_reachability params formula
+
+      let remove_anchors (formula : Formula.t) =
+        List.fold_left
+          (fun formula var ->
+            Formula.substitute ~var:(get_anchor var) ~by:var formula)
+          formula reachable_vars
+      in
+
+      (* add anchor variables to formula *)
+      let reachable =
+        List.fold_left2
+          (fun formula param arg ->
+            formula
+            |> Formula.add_eq param (get_anchor param)
+            |> Formula.substitute ~var:arg ~by:param)
+          reachable params args
+      in
+
+      let reachable =
+        List.fold_left
+          (fun formula var -> Formula.add_eq var (get_anchor var) formula)
+          reachable reachable_vars
       in
 
       (* backup current state of analysis into a variable *)
@@ -119,20 +153,30 @@ let call (lhs_opt : Formula.var option) (func : Cil_types.varinfo)
 
       Hashtbl.add !results first_stmt [ reachable ];
 
-      assert (Hashtbl.mem !results first_stmt);
       !compute_function [ first_stmt ];
 
-      let result_state = Hashtbl.find !results return_stmt in
+      let result_state =
+        Hashtbl.find !results return_stmt
+        |> List.map rename_anchors |> List.map remove_anchors
+        |> List.map (( @ ) unreachable)
+      in
       (* restore current state of analysis *)
       results := current_results;
-
-      let result_state = List.map (( @ ) unreachable) result_state in
 
       let result_state =
         match lhs_opt with
         | Some lhs ->
+            let return_var_name =
+              match return_stmt.skind with
+              | Return (Some { enode = Lval (Var var, NoOffset); _ }, _) ->
+                  var.vname
+              | _ ->
+                  fail
+                    "function which is supposed to return something does not \
+                     have a return value"
+            in
             let retres =
-              SSL.Variable.mk "__retres" (SSL.Variable.get_sort lhs)
+              SSL.Variable.mk return_var_name (SSL.Variable.get_sort lhs)
             in
             result_state
             |> List.map (Formula.substitute_by_fresh lhs)

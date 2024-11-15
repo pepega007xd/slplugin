@@ -37,9 +37,10 @@ let mk_nls (first : var) (top : var) (next : var) (min_len : int) =
 
 let atom_to_string : atom -> 'a =
   let var var =
-    SSL.Variable.show var
-    (* let sort = SSL.Variable.get_sort var |> Sort.show in *)
-    (* SSL.Variable.show var ^ ":" ^ sort *)
+    if Config.Print_sort.get () then
+      let sort = SSL.Variable.get_sort var |> Sort.show in
+      SSL.Variable.show var ^ ":" ^ sort
+    else SSL.Variable.show var
   in
   function
   | Eq vars -> vars |> List.map var |> String.concat " = "
@@ -201,6 +202,9 @@ let get_vars (f : t) : var list =
       | NLS nls -> [ nls.first; nls.top; nls.next ])
     f
 
+let get_fresh_vars (f : t) : var list =
+  f |> get_vars |> List.filter is_fresh_var
+
 let substitute (f : t) ~(var : var) ~(by : var) : t =
   f |> to_astral |> SSL.substitute ~var ~by |> from_astral
 
@@ -236,7 +240,19 @@ let add_equiv_class (equiv_class : var list) (f : t) =
 let remove_equiv_class (equiv_class : var list) (f : t) =
   remove_atom (Eq equiv_class) f
 
+let is_eq (lhs : var) (rhs : var) (f : t) : bool =
+  if lhs = rhs then true
+  else
+    f |> find_equiv_class lhs
+    |> Option.map (List.exists (( = ) rhs))
+    |> Option.value ~default:false
+
 (** Spatial atoms *)
+
+let get_spatial_atoms : t -> t =
+  List.filter (function
+    | PointsTo _ | LS _ | DLS _ | NLS _ -> true
+    | _ -> false)
 
 let is_spatial_source (src : var) : atom -> bool = function
   | PointsTo (var, _) -> src = var
@@ -289,12 +305,17 @@ let get_targets_of_atom : atom -> var list = function
   | NLS nls -> [ nls.top; nls.next ]
   | _ -> fail "unreachable formula.ml:272"
 
-let get_spatial_target (var : var) (field : Preprocessing.field_type) (f : t) :
-    var option =
-  get_spatial_atom_from_opt var f |> Option.map (get_target_of_atom field)
+let is_spatial_target (target : var) (f : t) : bool =
+  f |> get_spatial_atoms
+  |> List.exists (fun atom ->
+         get_targets_of_atom atom |> List.exists (fun var -> is_eq target var f))
 
-let remove_spatial_from (var : var) (f : t) : t =
-  get_spatial_atom_from_opt var f |> function
+let get_spatial_target (src : var) (field : Preprocessing.field_type) (f : t) :
+    var option =
+  get_spatial_atom_from_opt src f |> Option.map (get_target_of_atom field)
+
+let remove_spatial_from (src : var) (f : t) : t =
+  get_spatial_atom_from_opt src f |> function
   | Some original_atom -> remove_atom original_atom f
   | None -> f
 
@@ -350,13 +371,6 @@ let add_eq (lhs : var) (rhs : var) (f : t) : t =
       f |> remove_equiv_class rhs_class |> add_equiv_class (lhs :: rhs_class)
   (* no variable is in an existing class - create a new class *)
   | _ -> f |> add_equiv_class [ lhs; rhs ]
-
-let is_eq (lhs : var) (rhs : var) (f : t) : bool =
-  if lhs = rhs then true
-  else
-    f |> find_equiv_class lhs
-    |> Option.map (List.exists (( = ) rhs))
-    |> Option.value ~default:false
 
 let add_distinct (lhs : var) (rhs : var) (f : t) : t =
   let try_increase_bound lhs rhs f =

@@ -57,3 +57,8 @@ module Astral_encoding = Self.Enum (struct
   let all_values = [ `Bitvectors; `Sets ]
   let to_string = function `Bitvectors -> "Bitvectors" | `Sets -> "Sets"
 end)
+
+module Print_sort = Self.False (struct
+  let option_name = "-sl-print-sort"
+  let help = "Print sort of variables along with their names"
+end)
