@@ -14,20 +14,46 @@ module Dump_queries = Self.False (struct
   let help = "Dump Astral queries to 'astral_queries' directory."
 end)
 
-module Use_cvc5 = Self.False (struct
-  let option_name = "-sl-use-cvc5"
-  let help = "Use CVC5 in Astral"
-end)
-
-module Use_Bitvectors = Self.False (struct
-  let option_name = "-sl-use-bitvectors"
-  let help = "Set Astral's encoding to bitvectors"
-end)
-
-module Abstraction_everywhere = Self.False (struct
-  let option_name = "-sl-abstraction-everywhere"
+module Edge_abstraction = Self.False (struct
+  let option_name = "-sl-edge-abstraction"
 
   let help =
-    "Do abstraction between all statements (default: abstraction is done on \
-     loop return)"
+    "Do abstraction on every edge between stmts (default: abstraction is done \
+     on loop return)"
+end)
+
+module Edge_deduplication = Self.False (struct
+  let option_name = "-sl-edge-deduplication"
+
+  let help =
+    "Deduplicate states using join (entailments) on every edge between stmts"
+end)
+
+module Backend_solver = Self.Enum (struct
+  let option_name = "-sl-backend-solver"
+  let help = "Which solver should be used by Astral, default: Auto"
+  let arg_name = "Auto | Bitwuzla | CVC5 | Z3"
+
+  type t = Astral.Options.backend
+
+  let default = `Auto
+  let all_values = [ `Bitwuzla; `CVC5; `Z3; `Auto ]
+
+  let to_string = function
+    | `Bitwuzla -> "Bitwuzla"
+    | `CVC5 -> "CVC5"
+    | `Z3 -> "Z3"
+    | `Auto -> "Auto"
+end)
+
+module Astral_encoding = Self.Enum (struct
+  let option_name = "-sl-astral-encoding"
+  let help = "Which location encoding should Astral use, default: Bitvectors"
+  let arg_name = "Bitvectors | Sets"
+
+  type t = Astral.Options.encoding
+
+  let default = `Bitvectors
+  let all_values = [ `Bitvectors; `Sets ]
+  let to_string = function `Bitvectors -> "Bitvectors" | `Sets -> "Sets"
 end)

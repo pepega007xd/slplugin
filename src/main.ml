@@ -4,7 +4,7 @@ open Astral
 module ForwardsAnalysis = Forwards (Analysis)
 
 let run_analysis () =
-  Transfer.compute_function := Some ForwardsAnalysis.compute;
+  Transfer.compute_function := ForwardsAnalysis.compute;
   Preprocessing.preprocess ();
 
   Astral_query.init ();

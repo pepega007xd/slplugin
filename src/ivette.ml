@@ -55,3 +55,13 @@ let () =
     ~label:"field type heurisic" ~title:"field type heuristic"
     ~descr:"result of field type heurisitic (which list field type is this?)"
     print_type_heuristic_on_field
+
+let print_statement_id (fmt : Format.formatter) (loc : Printer_tag.localizable)
+    : unit =
+  match loc with
+  | Printer_tag.PStmt (_, stmt) -> Format.pp_print_int fmt stmt.sid
+  | _ -> ()
+
+let () =
+  Server.Kernel_ast.Information.register ~id:"slplugin.statement_id"
+    ~label:"statement id" ~title:"statement id" print_statement_id

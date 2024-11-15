@@ -11,8 +11,8 @@ let init () =
   let dump_queries =
     if Config.Dump_queries.get () then `Full "astral_queries" else `None
   in
-  let backend = if Config.Use_cvc5.get () then `CVC5 else `Z3 in
-  let encoding = if Config.Use_Bitvectors.get () then `Bitvectors else `Sets in
+  let backend = Config.Backend_solver.get () in
+  let encoding = Config.Astral_encoding.get () in
   solver := Solver.init ~dump_queries ~backend ~encoding ()
 
 let check_sat (formula : Formula.t) : bool =

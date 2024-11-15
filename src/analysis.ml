@@ -141,10 +141,14 @@ let doEdge (prev_stmt : stmt) (next_stmt : stmt) (state : t) : t =
   in
 
   let do_abstraction : t -> t =
-    match prev_stmt.skind with
-    | _ when Config.Abstraction_everywhere.get () -> do_abstraction
+    match next_stmt.skind with
+    | _ when Config.Edge_abstraction.get () -> do_abstraction
     | Loop _ -> do_abstraction
     | _ -> Fun.id
+  in
+
+  let deduplicate_states : t -> t =
+    if Config.Edge_deduplication.get () then deduplicate_states else Fun.id
   in
 
   let open Simplification in
@@ -162,6 +166,8 @@ let doEdge (prev_stmt : stmt) (next_stmt : stmt) (state : t) : t =
     |> List.map (List.sort_uniq compare)
     (* deduplicate formulas syntactically *)
     |> List.sort_uniq compare
+    (* deduplicate formulas semantically *)
+    |> deduplicate_states
   in
 
   Self.debug ~current:true ~dkey:Printing.do_edge
@@ -174,10 +180,14 @@ module StmtStartData = struct
 
   let results = Transfer.results
   let clear () = Hashtbl.clear !results
-  let mem = Hashtbl.mem !results
-  let find = Hashtbl.find !results
-  let replace = Hashtbl.replace !results
-  let add = Hashtbl.add !results
+
+  (* we cannot just assign `let mem = Hashtbl.mem !results`,
+     that would evaluate `!results` immediately, but we need it to be evaluated each time
+     (inside function calls, `results` refers to a different hashtable *)
+  let mem stmt = Hashtbl.mem !results stmt
+  let find stmt = Hashtbl.find !results stmt
+  let replace stmt = Hashtbl.replace !results stmt
+  let add stmt = Hashtbl.add !results stmt
   let iter f = Hashtbl.iter f !results
   let length () = Hashtbl.length !results
 end

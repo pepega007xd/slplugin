@@ -7,9 +7,10 @@ let function_summaries : (summary_input, Formula.state) Hashtbl.t ref =
   ref @@ Hashtbl.create 113
 
 (** for running dataflow analysis recursively on other functions *)
-let compute_function : (Cil_types.stmt list -> unit) option ref = ref None
+let compute_function : (Cil_types.stmt list -> unit) ref =
+  ref (fun _ -> fail "called compute_function without initializing it")
 
-(* state of dataflow analysis is stored here *)
+(** state of dataflow analysis is stored here *)
 let results : (Cil_types.stmt, Formula.state) Hashtbl.t ref =
   ref (Hashtbl.create 113)
 
@@ -109,12 +110,18 @@ let call (lhs_opt : Formula.var option) (func : Cil_types.varinfo)
           formula params args
       in
 
+      (* backup current state of analysis into a variable *)
+      let current_results = !results in
+      results := Hashtbl.create 113;
+
       Hashtbl.add !results first_stmt [ formula ];
 
-      let compute_function = !compute_function |> Option.get in
-      compute_function [ first_stmt ];
+      assert (Hashtbl.mem !results first_stmt);
+      !compute_function [ first_stmt ];
 
       let result_state = Hashtbl.find !results return_stmt in
+      (* restore current state of analysis *)
+      results := current_results;
 
       let result_state =
         match lhs_opt with
