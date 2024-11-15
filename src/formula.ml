@@ -224,6 +224,9 @@ let remove_atom (atom : atom) (f : t) : t = f |> List.filter (( <> ) atom)
 let get_equiv_classes : t -> var list list =
   List.filter_map (function Eq list -> Some list | _ -> None)
 
+let find_equiv_class (var : var) (f : t) : var list option =
+  f |> get_equiv_classes |> List.find_opt (List.mem var)
+
 let map_equiv_classes (fn : var list -> var list) : t -> t =
   List.map (function Eq vars -> Eq (fn vars) | other -> other)
 
@@ -243,7 +246,7 @@ let is_spatial_source (src : var) : atom -> bool = function
   | _ -> false
 
 let make_var_explicit_src (var : var) (f : t) : t =
-  get_equiv_classes f |> List.find_opt (List.mem var) |> function
+  find_equiv_class var f |> function
   | Some equiv_class ->
       let current_src =
         List.find_opt
@@ -275,6 +278,15 @@ let get_target_of_atom (field : Preprocessing.field_type) (atom : atom) : var =
   | DLS dls, Prev -> dls.prev
   | NLS nls, Top -> nls.top
   | NLS nls, Next -> nls.next
+  | _ -> fail "unreachable formula.ml:272"
+
+let get_targets_of_atom : atom -> var list = function
+  | PointsTo (_, LS_t next) -> [ next ]
+  | PointsTo (_, DLS_t (next, prev)) -> [ next; prev ]
+  | PointsTo (_, NLS_t (top, next)) -> [ top; next ]
+  | LS ls -> [ ls.next ]
+  | DLS dls -> [ dls.prev; dls.next ]
+  | NLS nls -> [ nls.top; nls.next ]
   | _ -> fail "unreachable formula.ml:272"
 
 let get_spatial_target (var : var) (field : Preprocessing.field_type) (f : t) :
@@ -319,9 +331,8 @@ let assert_allocated (var : var) (f : t) : unit =
 (** Pure atoms *)
 
 let add_eq (lhs : var) (rhs : var) (f : t) : t =
-  let equiv_classes = get_equiv_classes f in
-  let lhs_class = List.find_opt (List.mem lhs) equiv_classes in
-  let rhs_class = List.find_opt (List.mem rhs) equiv_classes in
+  let lhs_class = find_equiv_class lhs f in
+  let rhs_class = find_equiv_class rhs f in
 
   match (lhs_class, rhs_class) with
   (* both variables are already in the same equiv class - do nothing *)
@@ -343,8 +354,7 @@ let add_eq (lhs : var) (rhs : var) (f : t) : t =
 let is_eq (lhs : var) (rhs : var) (f : t) : bool =
   if lhs = rhs then true
   else
-    f |> get_equiv_classes
-    |> List.find_opt (List.mem lhs)
+    f |> find_equiv_class lhs
     |> Option.map (List.exists (( = ) rhs))
     |> Option.value ~default:false
 
@@ -440,6 +450,40 @@ let rec materialize (var : var) (f : t) : t list =
   | _ -> fail "unreachable formula.ml:357"
 
 (** Miscellaneous *)
+
+let rec split_by_reachability_from ((spatial, rest) : t * t) (var : var) : t * t
+    =
+  let rest = make_var_explicit_src var rest in
+  get_spatial_atom_from_opt var rest |> function
+  | Some atom ->
+      let targets = get_targets_of_atom atom in
+      List.fold_left split_by_reachability_from
+        (atom :: spatial, remove_atom atom rest)
+        targets
+  | None -> (spatial, rest)
+
+let split_by_reachability (vars : var list) (f : t) : t * t =
+  let reachable_spatials, rest =
+    List.fold_left split_by_reachability_from ([], f) vars
+  in
+  let reachable_vars = get_vars reachable_spatials in
+
+  let reachable_equiv_classes =
+    rest
+    |> List.filter (function Eq _ -> true | _ -> false)
+    |> map_equiv_classes (List.filter (fun var -> List.mem var reachable_vars))
+  in
+
+  let reachable_distincts =
+    List.filter
+      (function
+        | Distinct (lhs, rhs) ->
+            List.mem lhs reachable_vars && List.mem rhs reachable_vars
+        | _ -> false)
+      rest
+  in
+
+  (reachable_equiv_classes @ reachable_spatials @ reachable_distincts, rest)
 
 (** returns true when variable appears only once in the formula, [Distinct] atoms are ignored *)
 let count_occurences_excl_distinct (var : var) (f : t) : int =

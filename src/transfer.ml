@@ -109,12 +109,15 @@ let call (lhs_opt : Formula.var option) (func : Cil_types.varinfo)
           (fun formula var param -> Formula.add_eq var param formula)
           formula params args
       in
+      let reachable, unreachable =
+        Formula.split_by_reachability params formula
+      in
 
       (* backup current state of analysis into a variable *)
       let current_results = !results in
       results := Hashtbl.create 113;
 
-      Hashtbl.add !results first_stmt [ formula ];
+      Hashtbl.add !results first_stmt [ reachable ];
 
       assert (Hashtbl.mem !results first_stmt);
       !compute_function [ first_stmt ];
@@ -122,6 +125,8 @@ let call (lhs_opt : Formula.var option) (func : Cil_types.varinfo)
       let result_state = Hashtbl.find !results return_stmt in
       (* restore current state of analysis *)
       results := current_results;
+
+      let result_state = List.map (( @ ) unreachable) result_state in
 
       let result_state =
         match lhs_opt with
@@ -134,6 +139,16 @@ let call (lhs_opt : Formula.var option) (func : Cil_types.varinfo)
             |> List.map (Formula.substitute ~var:retres ~by:lhs)
         | None -> result_state
       in
+
+      Config.Self.debug ~current:true ~dkey:Printing.func_call
+        "input formula:\n\
+         %a\n\
+         reachable subformula:\n\
+         %a\n\
+         unreachable subformula:\n\
+         %a"
+        Formula.pp_formula formula Formula.pp_formula reachable
+        Formula.pp_formula unreachable;
 
       List.map (Simplification.convert_vars_to_fresh locals) result_state
 
