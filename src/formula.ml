@@ -373,14 +373,19 @@ let add_eq (lhs : var) (rhs : var) (f : t) : t =
   | _ -> f |> add_equiv_class [ lhs; rhs ]
 
 let add_distinct (lhs : var) (rhs : var) (f : t) : t =
-  let try_increase_bound lhs rhs f =
+  let try_increase_bound lhs rhs =
     let f = make_var_explicit_src lhs f in
     match get_spatial_atom_from_opt lhs f with
     | Some (LS ls) when ls.min_len = 0 && is_eq ls.next rhs f ->
         Some (f |> remove_atom (LS ls) |> add_atom (LS { ls with min_len = 1 }))
+    (* TODO: dls *)
+    | Some (NLS nls) when nls.min_len = 0 && is_eq nls.top rhs f ->
+        Some
+          (f |> remove_atom (NLS nls) |> add_atom (NLS { nls with min_len = 2 }))
     | _ -> None
   in
-  match (try_increase_bound lhs rhs f, try_increase_bound rhs lhs f) with
+
+  match (try_increase_bound lhs rhs, try_increase_bound rhs lhs) with
   | Some f, _ -> f
   | _, Some f -> f
   | _ -> f |> add_atom (Distinct (lhs, rhs))
