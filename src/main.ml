@@ -4,7 +4,7 @@ open Astral
 module ForwardsAnalysis = Forwards (Analysis)
 
 let run_analysis () =
-  Transfer.compute_function := ForwardsAnalysis.compute;
+  Func_call.compute_function := ForwardsAnalysis.compute;
   Preprocessing.preprocess ();
 
   Astral_query.init ();
@@ -12,7 +12,7 @@ let run_analysis () =
   let main, _ = Globals.entry_point () in
   let first_stmt = Kernel_function.find_first_stmt main in
 
-  Hashtbl.add !Transfer.results first_stmt [ [] ];
+  Hashtbl.add !Func_call.results first_stmt [ [] ];
 
   ForwardsAnalysis.compute [ first_stmt ];
 

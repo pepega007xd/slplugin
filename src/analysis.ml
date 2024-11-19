@@ -178,7 +178,7 @@ let doEdge (prev_stmt : stmt) (next_stmt : stmt) (state : t) : t =
 module StmtStartData = struct
   type data = t
 
-  let results = Transfer.results
+  let results = Func_call.results
   let clear () = Hashtbl.clear !results
 
   (* we cannot just assign `let mem = Hashtbl.mem !results`,
