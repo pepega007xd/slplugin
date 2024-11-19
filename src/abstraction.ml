@@ -152,6 +152,8 @@ let convert_to_nls (formula : Formula.t) : Formula.t =
 module Tests = struct
   open Testing
 
+  (* DLS abstraction *)
+
   let%test "abstraction_ls_nothing" =
     let input = [ PointsTo (x, LS_t y'); PointsTo (y', LS_t z) ] in
     assert_eq (convert_to_ls input) input
@@ -162,6 +164,12 @@ module Tests = struct
     in
     let result = convert_to_ls input in
     let expected = [ mk_ls x z 2; Distinct (x, z) ] in
+    assert_eq result expected
+
+  let%test "abstraction_ls_1_nil" =
+    let input = [ PointsTo (x, LS_t y'); PointsTo (y', LS_t nil) ] in
+    let result = convert_to_ls input in
+    let expected = [ mk_ls x nil 2 ] in
     assert_eq result expected
 
   let%test "abstraction_ls_2" =
@@ -210,6 +218,8 @@ module Tests = struct
     let result = convert_to_ls @@ convert_to_ls input in
     let expected = [ mk_ls x w 2; Distinct (x, w) ] in
     assert_eq result expected
+
+  (* DLS abstraction *)
 
   let%test "abstraction_dls_nothing" =
     let input =
@@ -278,4 +288,92 @@ module Tests = struct
       ]
     in
     assert_eq (convert_to_dls input) expected
+
+  (* NLS abstraction *)
+
+  let%test "abstraction_nls_nothing" =
+    let input =
+      [ PointsTo (x, NLS_t (y', nil)); PointsTo (y', NLS_t (z, nil)) ]
+    in
+    assert_eq (convert_to_nls input) input
+
+  let%test "abstraction_nls_nothing_2" =
+    let input =
+      [
+        PointsTo (x, NLS_t (y', nil));
+        PointsTo (y', NLS_t (z, w));
+        Distinct (x, z);
+      ]
+    in
+    let result = convert_to_nls input in
+    assert_eq result input
+
+  let%test "abstraction_nls_1" =
+    let input =
+      [
+        PointsTo (x, NLS_t (y', nil));
+        PointsTo (y', NLS_t (z, nil));
+        Distinct (x, z);
+      ]
+    in
+    let result = convert_to_nls input in
+    let expected = [ mk_nls x z nil 2; Distinct (x, z) ] in
+    assert_eq result expected
+
+  let%test "abstraction_nls_1_nil" =
+    let input =
+      [ PointsTo (x, NLS_t (y', nil)); PointsTo (y', NLS_t (nil, nil)) ]
+    in
+    let result = convert_to_nls input in
+    let expected = [ mk_nls x nil nil 2 ] in
+    assert_eq result expected
+
+  let%test "abstraction_nls_2" =
+    let input =
+      [
+        PointsTo (x, NLS_t (y', nil));
+        PointsTo (y', NLS_t (z, nil));
+        PointsTo (u, NLS_t (v', nil));
+        PointsTo (v', NLS_t (w, nil));
+        Distinct (u, w);
+      ]
+    in
+    let result = convert_to_nls input in
+    let expected =
+      [
+        PointsTo (x, NLS_t (y', nil));
+        PointsTo (y', NLS_t (z, nil));
+        mk_nls u w nil 2;
+        Distinct (u, w);
+      ]
+    in
+    assert_eq result expected
+
+  let%test "abstraction_nls_3" =
+    let input =
+      [
+        PointsTo (x, NLS_t (y', nil));
+        PointsTo (y', NLS_t (z', nil));
+        PointsTo (z', NLS_t (w, nil));
+        Distinct (x, w);
+      ]
+    in
+    let result = convert_to_nls input in
+    let expected =
+      [ mk_nls x z' nil 2; PointsTo (z', NLS_t (w, nil)); Distinct (x, w) ]
+    in
+    assert_eq result expected
+
+  let%test "abstraction_nls_double" =
+    let input =
+      [
+        PointsTo (x, NLS_t (y', nil));
+        PointsTo (y', NLS_t (z', nil));
+        PointsTo (z', NLS_t (w, nil));
+        Distinct (x, w);
+      ]
+    in
+    let result = convert_to_nls @@ convert_to_nls input in
+    let expected = [ mk_nls x w nil 2; Distinct (x, w) ] in
+    assert_eq result expected
 end
