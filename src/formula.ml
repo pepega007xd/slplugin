@@ -485,7 +485,9 @@ let split_by_reachability (vars : var list) (f : t) : t * t =
   let reachable_spatials, rest =
     List.fold_left split_by_reachability_from ([], f) vars
   in
-  let reachable_vars = get_vars reachable_spatials in
+
+  (* always include the function args and nil so that they remain in equiv classes *)
+  let reachable_vars = (nil :: vars) @ get_vars reachable_spatials in
 
   let reachable_equiv_classes =
     rest

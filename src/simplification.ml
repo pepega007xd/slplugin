@@ -26,6 +26,8 @@ let reduce_equiv_classes (formula : Formula.t) : Formula.t =
       formula fresh_vars
   in
   formula |> Formula.get_equiv_classes
+  (* filter out equivalence classes with less than two members *)
+  |> List.filter (function [] | [ _ ] -> false | _ -> true)
   |> List.fold_left remove_fresh_vars formula
   (* remove multiple occurences of a single variable in an equiv class created by a substitution *)
   |> Formula.map_equiv_classes @@ List.sort_uniq SSL.Variable.compare
