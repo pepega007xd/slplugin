@@ -23,9 +23,7 @@ let check_sat (formula : Formula.t) : bool =
 
 let check_entailment (lhs : SSL.t) (rhs : SSL.t) : bool =
   let vars = SSL.get_vars rhs in
-  let fresh_vars =
-    List.filter is_fresh_var vars |> List.sort_uniq SSL.Variable.compare
-  in
+  let fresh_vars = List.filter is_fresh_var vars in
   let fresh_vars = List.map (fun var -> SSL.Var var) fresh_vars in
   let quantified_rhs = SSL.mk_exists fresh_vars rhs in
 
