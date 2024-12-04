@@ -2,9 +2,9 @@ open Astral
 open Cil_types
 open Common
 
-type summary_input = Formula.var list * Cil_types.stmt
+type summary_input = Kernel_function.t * Formula.t
 
-let function_summaries : (summary_input, Formula.state) Hashtbl.t ref =
+let summaries : (summary_input, Formula.state) Hashtbl.t ref =
   ref @@ Hashtbl.create 113
 
 (** for running dataflow analysis recursively on other functions *)
@@ -38,6 +38,16 @@ let run_analysis (func : Kernel_function.t) (formula : Formula.t) :
   results := current_results;
 
   result_state
+
+let get_result_state (func : Kernel_function.t) (formula : Formula.t) :
+    Formula.state =
+  let summary_input = Formula.standardize_fresh_var_names formula in
+  Hashtbl.find_opt !summaries (func, summary_input) |> function
+  | Some result -> result
+  | None ->
+      let result_state = run_analysis func formula in
+      Hashtbl.add !summaries (func, summary_input) result_state;
+      result_state
 
 let func_call (args : Formula.var list) (func : varinfo) (formula : Formula.t)
     (lhs_opt : Formula.var option) =
@@ -108,7 +118,7 @@ let func_call (args : Formula.var list) (func : varinfo) (formula : Formula.t)
       reachable reachable_vars
   in
 
-  let result_state = run_analysis func reachable in
+  let result_state = get_result_state func reachable in
 
   Config.Self.debug ~current:true ~dkey:Printing.func_call
     "input formula:\n%a\nreachable subformula:\n%a\nunreachable subformula:\n%a"

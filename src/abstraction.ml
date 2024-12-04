@@ -12,9 +12,9 @@ let is_in_formula (src : Formula.var) (dst : Formula.var)
   |> Option.value ~default:false
 
 let convert_to_ls (formula : Formula.t) : Formula.t =
-  let atom_to_ls : Formula.atom -> Formula.ls option = function
+  let atom_to_ls (atom : Formula.atom) : Formula.ls option =
+    atom |> Formula.pto_to_list |> function
     | Formula.LS ls -> Some ls
-    | Formula.PointsTo (first, LS_t next) -> Some { first; next; min_len = 1 }
     | _ -> None
   in
 
@@ -45,10 +45,10 @@ let convert_to_ls (formula : Formula.t) : Formula.t =
   formula |> List.filter_map atom_to_ls |> List.fold_left do_abstraction formula
 
 let convert_to_dls (formula : Formula.t) : Formula.t =
-  let atom_to_dls : Formula.atom -> Formula.dls option = function
+  (* Formula.show_formula formula; *)
+  let atom_to_dls (atom : Formula.atom) : Formula.dls option =
+    atom |> Formula.pto_to_list |> function
     | Formula.DLS dls -> Some dls
-    | Formula.PointsTo (src, DLS_t (next, prev)) ->
-        Some { first = src; last = src; next; prev; min_len = 1 }
     | _ -> None
   in
 
@@ -93,7 +93,7 @@ let convert_to_dls (formula : Formula.t) : Formula.t =
            && Astral_query.check_inequality third_dls.last first_dls.prev
                 formula ->
         let min_length =
-          min 3 (first_dls.min_len + second_dls.min_len + second_dls.min_len)
+          min 3 (first_dls.min_len + second_dls.min_len + third_dls.min_len)
         in
         formula
         |> Formula.remove_spatial_from first_dls.first
@@ -110,10 +110,38 @@ let convert_to_dls (formula : Formula.t) : Formula.t =
   |> List.fold_left do_abstraction formula
 
 let convert_to_nls (formula : Formula.t) : Formula.t =
-  let atom_to_nls : Formula.atom -> Formula.nls option = function
+  let atom_to_nls (atom : Formula.atom) : Formula.nls option =
+    atom |> Formula.pto_to_list |> function
     | Formula.NLS nls -> Some nls
-    | Formula.PointsTo (first, NLS_t (top, next)) ->
-        Some { first; top; next; min_len = 1 }
+    | _ -> None
+  in
+
+  (* returns modified formula and new [next] var if join succeeded *)
+  let join_sublists (lhs : Formula.var) (rhs : Formula.var)
+      (formula : Formula.t) : (Formula.t * Formula.var) option =
+    let lhs_target =
+      Formula.get_spatial_target lhs Preprocessing.Next formula
+    in
+    let rhs_target =
+      Formula.get_spatial_target rhs Preprocessing.Next formula
+    in
+    match (lhs, rhs, lhs_target, rhs_target) with
+    | lhs, rhs, _, _ when Formula.is_eq lhs rhs formula -> Some (formula, lhs)
+    | lhs, rhs, _, Some rhs_t
+      when Formula.is_eq lhs rhs_t formula && is_unique_fresh rhs formula ->
+        Some (formula |> Formula.remove_spatial_from rhs, lhs)
+    | lhs, rhs, Some lhs_t, _
+      when Formula.is_eq lhs_t rhs formula && is_unique_fresh lhs formula ->
+        Some (formula |> Formula.remove_spatial_from lhs, lhs_t)
+    | lhs, rhs, Some lhs_t, Some rhs_t
+      when Formula.is_eq lhs_t rhs_t formula
+           && is_unique_fresh lhs formula
+           && is_unique_fresh rhs formula ->
+        Some
+          ( formula
+            |> Formula.remove_spatial_from lhs
+            |> Formula.remove_spatial_from rhs,
+            lhs_t )
     | _ -> None
   in
 
@@ -132,16 +160,18 @@ let convert_to_nls (formula : Formula.t) : Formula.t =
            && is_unique_fresh first_nls.top formula
            (* src must be different from dst (checked using solver) *)
            && Astral_query.check_inequality first_nls.first second_nls.top
-                (* common variable `next` must lead to the same target *)
                 formula
-           && Formula.is_eq first_nls.next second_nls.next formula ->
-        let min_length = min 2 (first_nls.min_len + second_nls.min_len) in
-        formula
-        |> Formula.remove_spatial_from first_nls.first
-        |> Formula.remove_spatial_from second_nls.first
-        |> Formula.add_atom
-           @@ Formula.mk_nls first_nls.first second_nls.top first_nls.next
-                min_length
+           (* common variable `next` must lead to the same target *)
+           (*TODO: *) -> (
+        match join_sublists first_nls.next second_nls.next formula with
+        | Some (formula, next) ->
+            let min_length = min 2 (first_nls.min_len + second_nls.min_len) in
+            formula
+            |> Formula.remove_spatial_from first_nls.first
+            |> Formula.remove_spatial_from second_nls.first
+            |> Formula.add_atom
+               @@ Formula.mk_nls first_nls.first second_nls.top next min_length
+        | None -> formula)
     | _ -> formula
   in
 
@@ -375,5 +405,46 @@ module Tests = struct
     in
     let result = convert_to_nls @@ convert_to_nls input in
     let expected = [ mk_nls x w nil 2; Distinct (x, w) ] in
+    assert_eq result expected
+
+  let%test "abstraction_nls_with_ls_0" =
+    let input =
+      [
+        PointsTo (x, NLS_t (y', z'));
+        PointsTo (y', NLS_t (u, v'));
+        Distinct (x, u);
+        LS { first = z'; next = nil; min_len = 0 };
+        LS { first = v'; next = nil; min_len = 0 };
+      ]
+    in
+    let result = convert_to_nls input in
+    let expected = [ mk_nls x u nil 2; Distinct (x, u) ] in
+    assert_eq result expected
+
+  let%test "abstraction_nls_with_ls_different_lengths" =
+    let input =
+      [
+        PointsTo (x, NLS_t (y', z'));
+        PointsTo (y', NLS_t (u, v'));
+        Distinct (x, u);
+        LS { first = z'; next = nil; min_len = 1 };
+        LS { first = v'; next = nil; min_len = 0 };
+      ]
+    in
+    let result = convert_to_nls input in
+    let expected = [ mk_nls x u nil 2; Distinct (x, u) ] in
+    assert_eq result expected
+
+  let%test "abstraction_nls_with_ls_different_lengths_2" =
+    let input =
+      [
+        PointsTo (x, NLS_t (y', z'));
+        PointsTo (y', NLS_t (nil, v'));
+        LS { first = z'; next = nil; min_len = 1 };
+        LS { first = v'; next = nil; min_len = 2 };
+      ]
+    in
+    let result = convert_to_nls input in
+    let expected = [ mk_nls x nil nil 2 ] in
     assert_eq result expected
 end

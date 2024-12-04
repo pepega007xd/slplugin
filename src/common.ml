@@ -17,3 +17,8 @@ let is_fresh_var (var : SSL.Variable.t) : bool =
 
 let list_count (elem : 'a) (list : 'a List.t) : int =
   list |> List.filter (( = ) elem) |> List.length
+
+let rec list_map_pairs (f : 'a -> 'a -> 'b) (list : 'a list) : 'b list =
+  match list with
+  | [] -> []
+  | first :: rest -> List.map (f first) rest @ list_map_pairs f rest

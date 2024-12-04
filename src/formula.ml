@@ -218,6 +218,16 @@ let swap_vars (var1 : var) (var2 : var) (f : t) =
   |> substitute ~var:var2 ~by:var1
   |> substitute ~var:tmp_name ~by:var2
 
+let standardize_fresh_var_names (f : t) : t =
+  let vars = f |> get_fresh_vars in
+  let names =
+    List.mapi
+      (fun idx var ->
+        SSL.Variable.mk ("!" ^ string_of_int idx) (SSL.Variable.get_sort var))
+      vars
+  in
+  List.fold_left2 (fun f var by -> substitute ~var ~by f) f vars names
+
 (** Atoms *)
 
 let add_atom (atom : atom) (f : t) : t = atom :: f
@@ -249,10 +259,11 @@ let is_eq (lhs : var) (rhs : var) (f : t) : bool =
 
 (** Spatial atoms *)
 
-let get_spatial_atoms : t -> t =
-  List.filter (function
-    | PointsTo _ | LS _ | DLS _ | NLS _ -> true
-    | _ -> false)
+let is_spatial_atom : atom -> bool = function
+  | PointsTo _ | LS _ | DLS _ | NLS _ -> true
+  | _ -> false
+
+let get_spatial_atoms : t -> t = List.filter is_spatial_atom
 
 let is_spatial_source (src : var) : atom -> bool = function
   | PointsTo (var, _) -> src = var
@@ -294,7 +305,7 @@ let get_target_of_atom (field : Preprocessing.field_type) (atom : atom) : var =
   | DLS dls, Prev -> dls.prev
   | NLS nls, Top -> nls.top
   | NLS nls, Next -> nls.next
-  | _ -> fail "unreachable formula.ml:272"
+  | _ -> assert false
 
 let get_targets_of_atom : atom -> var list = function
   | PointsTo (_, LS_t next) -> [ next ]
@@ -348,6 +359,13 @@ let get_spatial_atom_min_length : atom -> int = function
 
 let assert_allocated (var : var) (f : t) : unit =
   ignore @@ get_spatial_atom_from var f
+
+let pto_to_list : atom -> atom = function
+  | PointsTo (first, LS_t next) -> LS { first; next; min_len = 1 }
+  | PointsTo (src, DLS_t (next, prev)) ->
+      DLS { first = src; last = src; next; prev; min_len = 1 }
+  | PointsTo (first, NLS_t (top, next)) -> NLS { first; top; next; min_len = 1 }
+  | other -> other
 
 (** Pure atoms *)
 

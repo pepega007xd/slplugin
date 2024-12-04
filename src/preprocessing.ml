@@ -442,11 +442,33 @@ let remove_useless_assignments =
       | _ -> DoChildren
   end
 
+let alphaTable : unit Alpha.alphaTable = Hashtbl.create 103
+
+let unique_names functions =
+  object (self)
+    inherit Visitor.frama_c_inplace
+
+    method! vvrbl (var : varinfo) =
+      let fundec = self#current_func |> Option.get in
+      let other_funcs =
+        List.filter (fun f -> f.svar.vid <> fundec.svar.vid) functions
+      in
+      List.iter (fun f -> refresh_local_name f var) other_funcs;
+      SkipChildren
+  end
+
 let preprocess () =
   let file = Ast.get () in
 
   uniqueVarNames file;
 
+  let functions =
+    List.filter_map
+      (function GFun (func, _) -> Some func | _ -> None)
+      file.globals
+  in
+
+  Visitor.visitFramacFileFunctions (unique_names functions) file;
   Visitor.visitFramacFileFunctions replace_constants file;
   visitCilFileFunctions remove_casts file;
   Visitor.visitFramacFileFunctions remove_local_init file;

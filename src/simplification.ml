@@ -83,6 +83,43 @@ let convert_vars_to_fresh (vars : Formula.var list) (formula : Formula.t) :
     (fun formula var -> Formula.substitute_by_fresh var formula)
     formula vars
 
+let join_abstraction_lengths (lhs : Formula.t) (rhs : Formula.t) :
+    (Formula.t list * Formula.t) option =
+  let rest, first = List.partition (fun atom -> List.mem atom rhs) lhs in
+  let second = List.filter (fun atom -> not @@ List.mem atom lhs) rhs in
+  match (first, second) with
+  | [ first ], [ second ] ->
+      let new_atom =
+        match (Formula.pto_to_list first, Formula.pto_to_list second) with
+        | LS lhs, LS rhs
+          when { lhs with min_len = 0 } = { rhs with min_len = 0 } ->
+            Some (Formula.LS { lhs with min_len = min lhs.min_len rhs.min_len })
+        | DLS lhs, DLS rhs
+          when { lhs with min_len = 0 } = { rhs with min_len = 0 } ->
+            Some
+              (Formula.DLS { lhs with min_len = min lhs.min_len rhs.min_len })
+        | NLS lhs, NLS rhs
+          when { lhs with min_len = 0 } = { rhs with min_len = 0 } ->
+            Some
+              (Formula.NLS { lhs with min_len = min lhs.min_len rhs.min_len })
+        | _ -> None
+      in
+      Option.map (fun atom -> ([ lhs; rhs ], atom :: rest)) new_atom
+  | _ -> None
+
+let join_similar_formulas (state : Formula.state) : Formula.state =
+  if List.length state >= 2 then
+    let original, joined =
+      state
+      |> Common.list_map_pairs join_abstraction_lengths
+      |> List.filter_map Fun.id |> List.split
+    in
+    let original = List.flatten original in
+    state
+    |> List.filter (fun formula -> not @@ List.mem formula original)
+    |> ( @ ) joined
+  else state
+
 module Tests = struct
   open Testing
   open Formula
