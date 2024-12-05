@@ -5,7 +5,7 @@ let is_unique_fresh (var : Formula.var) (formula : Formula.t) : bool =
 
 let is_in_formula (src : Formula.var) (dst : Formula.var)
     (field : Preprocessing.field_type) (formula : Formula.t) : bool =
-  Formula.get_spatial_atom_from_opt src formula
+  Formula.get_spatial_atom_from_first_opt src formula
   |> Option.map (fun atom ->
          Formula.get_target_of_atom field atom |> fun atom_dst ->
          Formula.is_eq atom_dst dst formula)
@@ -52,56 +52,37 @@ let convert_to_dls (formula : Formula.t) : Formula.t =
     | _ -> None
   in
 
-  (* unlike ls and nls, dls contains each variable 3 times *)
-  let is_unique_fresh (var : Formula.var) (formula : Formula.t) : bool =
-    is_fresh_var var && Formula.count_occurences_excl_distinct var formula = 3
-  in
-
   let do_abstraction (formula : Formula.t) (first_dls : Formula.dls) : Formula.t
       =
-    let second_dls =
+    match
       formula
       |> Formula.get_spatial_atom_from_opt first_dls.next
       |> Option.map atom_to_dls |> Option.join
-    in
-
-    let third_dls =
-      Option.map
-        (fun (second_dls : Formula.dls) ->
-          formula
-          |> Formula.get_spatial_atom_from_opt second_dls.next
-          |> Option.map atom_to_dls)
-        second_dls
-      |> Option.join |> Option.join
-    in
-
-    match (second_dls, third_dls) with
-    | Some second_dls, Some third_dls
+    with
+    | Some second_dls
     (* conditions for abstraction *)
       when (* first_dls must still be in formula *)
            is_in_formula first_dls.first first_dls.next Preprocessing.Next
              formula
            (* middle vars must be fresh, and occur only in these two predicates *)
-           && is_unique_fresh second_dls.first formula
-           && is_unique_fresh second_dls.last formula
-           (* `prev` pointers from second and third DLS must lead to end of the previous DLS *)
+           && (first_dls.first = first_dls.last
+              || is_unique_fresh first_dls.last formula)
+           && (second_dls.first = second_dls.last
+              || is_unique_fresh second_dls.first formula)
+           (* [prev] pointer from second DLS must lead to end of the previous DLS *)
            && Formula.is_eq first_dls.last second_dls.prev formula
-           && Formula.is_eq second_dls.last third_dls.prev formula
            (* DLS must not be cyclic (checked both forward and backward) *)
-           && Astral_query.check_inequality first_dls.first third_dls.next
+           && Astral_query.check_inequality first_dls.first second_dls.next
                 formula
-           && Astral_query.check_inequality third_dls.last first_dls.prev
+           && Astral_query.check_inequality second_dls.last first_dls.prev
                 formula ->
-        let min_length =
-          min 3 (first_dls.min_len + second_dls.min_len + third_dls.min_len)
-        in
+        let min_length = min 3 (first_dls.min_len + second_dls.min_len) in
         formula
         |> Formula.remove_spatial_from first_dls.first
         |> Formula.remove_spatial_from second_dls.first
-        |> Formula.remove_spatial_from third_dls.first
         |> Formula.add_atom
-           @@ Formula.mk_dls first_dls.first third_dls.last first_dls.prev
-                third_dls.next min_length
+           @@ Formula.mk_dls first_dls.first second_dls.last first_dls.prev
+                second_dls.next min_length
     | _ -> formula
   in
 
@@ -160,9 +141,8 @@ let convert_to_nls (formula : Formula.t) : Formula.t =
            && is_unique_fresh first_nls.top formula
            (* src must be different from dst (checked using solver) *)
            && Astral_query.check_inequality first_nls.first second_nls.top
-                formula
-           (* common variable `next` must lead to the same target *)
-           (*TODO: *) -> (
+                formula -> (
+        (* common variable `next` must lead to the same target *)
         match join_sublists first_nls.next second_nls.next formula with
         | Some (formula, next) ->
             let min_length = min 2 (first_nls.min_len + second_nls.min_len) in
@@ -179,7 +159,7 @@ let convert_to_nls (formula : Formula.t) : Formula.t =
   |> List.filter_map atom_to_nls
   |> List.fold_left do_abstraction formula
 
-module Tests = struct
+module Tests_LS = struct
   open Testing
 
   (* DLS abstraction *)
@@ -249,7 +229,31 @@ module Tests = struct
     let expected = [ mk_ls x w 2; Distinct (x, w) ] in
     assert_eq result expected
 
+  let%test "abstraction_ls_from_ls+pto" =
+    let input =
+      [ LS { first = x; next = y'; min_len = 1 }; PointsTo (y', LS_t nil) ]
+    in
+    let result = convert_to_ls input in
+    let expected = [ mk_ls x nil 2 ] in
+    assert_eq result expected
+
+  let%test "abstraction_ls_from_ls+ls" =
+    let input =
+      [
+        LS { first = x; next = y'; min_len = 0 };
+        LS { first = y'; next = nil; min_len = 1 };
+      ]
+    in
+    let result = convert_to_ls input in
+    let expected = [ mk_ls x nil 1 ] in
+    assert_eq result expected
+
   (* DLS abstraction *)
+end
+
+module Tests_DLS = struct
+  open Testing
+  open DLS (* test vars with dls sort *)
 
   let%test "abstraction_dls_nothing" =
     let input =
@@ -262,17 +266,23 @@ module Tests = struct
     in
     assert_eq (convert_to_dls input) input
 
+  let%test "abstraction_dls_from_pto" =
+    let input =
+      [ PointsTo (u', DLS_t (v', nil)); PointsTo (v', DLS_t (nil, u')) ]
+    in
+    let expected = [ mk_dls u' v' nil nil 2 ] in
+    assert_eq (convert_to_dls input) expected
+
   let%test "abstraction_dls_1" =
     let input =
       [
-        PointsTo (u, DLS_t (v', z));
-        PointsTo (v', DLS_t (w, u));
-        PointsTo (w, DLS_t (x, v'));
-        Distinct (u, x);
-        Distinct (w, z);
+        PointsTo (u, DLS_t (v, z));
+        PointsTo (v, DLS_t (w, u));
+        Distinct (v, z);
+        Distinct (u, w);
       ]
     in
-    let expected = [ mk_dls u w z x 3; Distinct (u, x); Distinct (w, z) ] in
+    let expected = [ mk_dls u v z w 2; Distinct (v, z); Distinct (u, w) ] in
     assert_eq (convert_to_dls input) expected
 
   let%test "abstraction_dls_2" =
@@ -281,16 +291,37 @@ module Tests = struct
         PointsTo (u, DLS_t (v', z));
         PointsTo (v', DLS_t (w, u));
         PointsTo (w, DLS_t (x, v'));
-        PointsTo (x, DLS_t (y, w'));
-        Distinct (w, z);
+        Distinct (v', z);
+        Distinct (z, w);
       ]
     in
     let expected =
-      [ mk_dls u w z x 3; PointsTo (x, DLS_t (y, w')); Distinct (w, z) ]
+      [
+        mk_dls u v' z w 2;
+        PointsTo (w, DLS_t (x, v'));
+        Distinct (v', z);
+        Distinct (z, w);
+      ]
     in
-    assert_eq (convert_to_dls input) expected
+    assert_eq (convert_to_dls @@ convert_to_dls input) expected
 
-  let%test "abstraction_dls_long_nothing" =
+  let%test "abstraction_dls_2_double" =
+    let input =
+      [
+        PointsTo (u, DLS_t (v', z));
+        PointsTo (v', DLS_t (w, u));
+        PointsTo (w, DLS_t (x, v'));
+        Distinct (v', z);
+        Distinct (z, w);
+        Distinct (x, u);
+      ]
+    in
+    let expected =
+      [ mk_dls u w z x 3; Distinct (v', z); Distinct (z, w); Distinct (x, u) ]
+    in
+    assert_eq (convert_to_dls @@ convert_to_dls input) expected
+
+  let%test "abstraction_dls_long_from_pto" =
     let input =
       [
         PointsTo (u, DLS_t (v, z));
@@ -300,9 +331,15 @@ module Tests = struct
         PointsTo (y, DLS_t (z, x));
       ]
     in
-    assert_eq (convert_to_dls input) input
+    assert_eq (convert_to_dls input)
+      [
+        PointsTo (u, DLS_t (v, z));
+        mk_dls v w u x 2;
+        PointsTo (x, DLS_t (y, w));
+        PointsTo (y, DLS_t (z, x));
+      ]
 
-  let%test "abstraction_dls_long_1" =
+  let%test "abstraction_dls_long_from_pto_2" =
     let input =
       [
         PointsTo (u, DLS_t (v, z));
@@ -312,14 +349,35 @@ module Tests = struct
         PointsTo (y, DLS_t (z, x));
       ]
     in
-    let expected =
+    assert_eq
+      (convert_to_dls @@ convert_to_dls input)
       [
         PointsTo (u, DLS_t (v, z)); mk_dls v x u y 3; PointsTo (y, DLS_t (z, x));
       ]
+
+  let%test "abstraction_dls_from_dls+pto" =
+    let input =
+      [
+        DLS { first = x; last = y'; prev = nil; next = z; min_len = 1 };
+        PointsTo (z, DLS_t (nil, y'));
+      ]
     in
+    let expected = [ mk_dls x z nil nil 2 ] in
     assert_eq (convert_to_dls input) expected
 
-  (* NLS abstraction *)
+  let%test "abstraction_dls_from_dls+dls" =
+    let input =
+      [
+        DLS { first = x; last = y'; prev = nil; next = z'; min_len = 1 };
+        DLS { first = z'; last = w; prev = y'; next = nil; min_len = 2 };
+      ]
+    in
+    let expected = [ mk_dls x w nil nil 3 ] in
+    assert_eq (convert_to_dls input) expected
+end
+
+module Tests_NLS = struct
+  open Testing
 
   let%test "abstraction_nls_nothing" =
     let input =

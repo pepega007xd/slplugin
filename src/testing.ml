@@ -30,6 +30,24 @@ let x' = SSL.Variable.mk "x!" Sort.loc_ls
 let y' = SSL.Variable.mk "y!" Sort.loc_ls
 let z' = SSL.Variable.mk "z!" Sort.loc_ls
 
+(* DLS sort vars *)
+module DLS = struct
+  let u = SSL.Variable.mk "u" Sort.loc_dls
+  let v = SSL.Variable.mk "v" Sort.loc_dls
+  let w = SSL.Variable.mk "w" Sort.loc_dls
+  let x = SSL.Variable.mk "x" Sort.loc_dls
+  let y = SSL.Variable.mk "y" Sort.loc_dls
+  let z = SSL.Variable.mk "z" Sort.loc_dls
+
+  (* fresh vars *)
+  let u' = SSL.Variable.mk "u'" Sort.loc_dls
+  let v' = SSL.Variable.mk "v!" Sort.loc_dls
+  let w' = SSL.Variable.mk "w!" Sort.loc_dls
+  let x' = SSL.Variable.mk "x!" Sort.loc_dls
+  let y' = SSL.Variable.mk "y!" Sort.loc_dls
+  let z' = SSL.Variable.mk "z!" Sort.loc_dls
+end
+
 let assert_eq (lhs : t) (rhs : t) : bool =
   (* order insensitive compare *)
   if

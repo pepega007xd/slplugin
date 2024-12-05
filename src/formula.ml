@@ -272,6 +272,13 @@ let is_spatial_source (src : var) : atom -> bool = function
   | NLS nls -> nls.first = src
   | _ -> false
 
+let is_spatial_source_first (src : var) : atom -> bool = function
+  | PointsTo (var, _) -> src = var
+  | LS ls -> ls.first = src
+  | DLS dls -> dls.first = src
+  | NLS nls -> nls.first = src
+  | _ -> false
+
 let make_var_explicit_src (var : var) (f : t) : t =
   find_equiv_class var f |> function
   | Some equiv_class ->
@@ -286,6 +293,9 @@ let make_var_explicit_src (var : var) (f : t) : t =
 
 let get_spatial_atom_from_opt (src : var) (f : t) : atom option =
   f |> make_var_explicit_src src |> List.find_opt (is_spatial_source src)
+
+let get_spatial_atom_from_first_opt (src : var) (f : t) : atom option =
+  f |> make_var_explicit_src src |> List.find_opt (is_spatial_source_first src)
 
 let get_spatial_atom_from (src : var) (f : t) : atom =
   get_spatial_atom_from_opt src f |> function
@@ -396,7 +406,15 @@ let add_distinct (lhs : var) (rhs : var) (f : t) : t =
     match get_spatial_atom_from_opt lhs f with
     | Some (LS ls) when ls.min_len = 0 && is_eq ls.next rhs f ->
         Some (f |> remove_atom (LS ls) |> add_atom (LS { ls with min_len = 1 }))
-    (* TODO: dls *)
+    (* first != last means length at least 2 *)
+    | Some (DLS dls) when dls.min_len < 2 && is_eq dls.last rhs f ->
+        Some
+          (f |> remove_atom (DLS dls) |> add_atom (DLS { dls with min_len = 2 }))
+    (* first != next or first != prev means length at least 1 *)
+    | Some (DLS dls)
+      when dls.min_len = 0 && (is_eq dls.next rhs f || is_eq dls.prev rhs f) ->
+        Some
+          (f |> remove_atom (DLS dls) |> add_atom (DLS { dls with min_len = 1 }))
     | Some (NLS nls) when nls.min_len = 0 && is_eq nls.top rhs f ->
         Some
           (f |> remove_atom (NLS nls) |> add_atom (NLS { nls with min_len = 2 }))

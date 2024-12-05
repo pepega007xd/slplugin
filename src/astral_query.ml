@@ -1,7 +1,7 @@
 open Astral
 open Common
 
-(** Astral solver instance, created in [slplugin.ml] *)
+(** Astral solver instance *)
 let solver = ref (Solver.init ())
 
 (** time spent in Astral *)
