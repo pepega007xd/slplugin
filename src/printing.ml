@@ -1,5 +1,3 @@
-open Astral
-
 (* categories of debug output, enable with [-sl-msg-key <category1,category2,...>] *)
 let do_instr = Config.Self.register_category "do_instr"
 let combine_predecessors = Config.Self.register_category "combine_predecessors"

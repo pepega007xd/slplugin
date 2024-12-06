@@ -76,16 +76,17 @@ and get_list_type (t : typ) : list_type =
 let is_list_type (t : typ) : bool =
   match get_list_type t with Sll | Dll | Nl -> true | Other -> false
 
-let list_type_to_sort : list_type -> Sort.t = function
-  | Sll -> Sort.loc_ls
-  | Dll -> Sort.loc_dls
-  | Nl -> Sort.loc_nls
-  | Other -> Sort.loc_nil (* this crashes astral when assigned to a variable *)
+let list_type_to_sort : list_type -> SL.Sort.t = function
+  | Sll -> SL_builtins.loc_ls
+  | Dll -> SL_builtins.loc_dls
+  | Nl -> SL_builtins.loc_nls
+  (* this crashes astral when assigned to a variable *)
+  | Other -> SL.Sort.loc_nil
 
-let varinfo_to_var (varinfo : Cil_types.varinfo) : SSL.Variable.t =
-  if varinfo.vname = null_var_name then SSL.Variable.nil
+let varinfo_to_var (varinfo : Cil_types.varinfo) : SL.Variable.t =
+  if varinfo.vname = null_var_name then SL.Variable.nil
   else
-    SSL.Variable.mk varinfo.vname
+    SL.Variable.mk varinfo.vname
       (varinfo.vtype |> get_list_type |> list_type_to_sort)
 
 and get_field_type (field : fieldinfo) : field_type =

@@ -2,10 +2,11 @@ open Config
 open Astral
 open Common
 
-(** removes fresh variables by substituting them with other variables in their equivalence class *)
+(** removes fresh variables by substituting them with other variables in their
+    equivalence class *)
 let reduce_equiv_classes (formula : Formula.t) : Formula.t =
-  let remove_fresh_vars (formula : Formula.t)
-      (equiv_class : SSL.Variable.t list) : Formula.t =
+  let remove_fresh_vars (formula : Formula.t) (equiv_class : Formula.var list) :
+      Formula.t =
     let fresh_vars, program_vars = List.partition is_fresh_var equiv_class in
 
     (* variable, to which all fresh vars will be changed *)
@@ -29,11 +30,12 @@ let reduce_equiv_classes (formula : Formula.t) : Formula.t =
   (* filter out equivalence classes with less than two members *)
   |> List.filter (function [] | [ _ ] -> false | _ -> true)
   |> List.fold_left remove_fresh_vars formula
-  (* remove multiple occurences of a single variable in an equiv class created by a substitution *)
-  |> Formula.map_equiv_classes @@ List.sort_uniq SSL.Variable.compare
+  (* remove multiple occurences of a single variable 
+     in an equiv class created by a substitution *)
+  |> Formula.map_equiv_classes @@ List.sort_uniq SL.Variable.compare
 
 let remove_distinct_only (formula : Formula.t) : Formula.t =
-  let fresh_distinct_only (var : SSL.Variable.t) : bool =
+  let fresh_distinct_only (var : Formula.var) : bool =
     is_fresh_var var && Formula.count_occurences_excl_distinct var formula = 0
   in
   List.filter
@@ -45,7 +47,7 @@ let remove_distinct_only (formula : Formula.t) : Formula.t =
 
 (* removes all spatial atoms where the source variable doesn't appear anywhere else in the formula *)
 let remove_leaks (formula : Formula.t) : Formula.t =
-  let is_fresh_unique (var : SSL.Variable.t) : bool =
+  let is_fresh_unique (var : Formula.var) : bool =
     is_fresh_var var && Formula.count_occurences_excl_distinct var formula = 1
   in
   let junk_atoms, valid_atoms =

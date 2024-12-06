@@ -5,13 +5,12 @@ open Common
 let assign (lhs : Formula.var) (rhs : Formula.var) (formula : Formula.t) :
     Formula.t =
   (* assignment into "_const" is used to check if rhs is allocated *)
-  if SSL.Variable.get_name lhs = Preprocessing.const_var_name then (
+  if SL.Variable.get_name lhs = Preprocessing.const_var_name then (
     Formula.assert_allocated rhs formula;
     formula)
   else
     let rhs =
-      if SSL.Variable.get_name rhs = Preprocessing.null_var_name then
-        Formula.nil
+      if SL.Variable.get_name rhs = Preprocessing.null_var_name then Formula.nil
       else rhs
     in
     formula |> Formula.substitute_by_fresh lhs |> Formula.add_eq lhs rhs
@@ -37,22 +36,22 @@ let call (lhs_opt : Formula.var option) (func : Cil_types.varinfo)
     let lhs, pto =
       match lhs_opt with
       | Some lhs -> (
-          let sort = SSL.Variable.get_sort lhs in
+          let sort = SL.Variable.get_sort lhs in
           let fresh () =
             if init_vars_to_null then Formula.nil
             else Common.mk_fresh_var_from lhs
           in
           ( lhs,
             match () with
-            | _ when sort = Sort.loc_ls ->
+            | _ when sort = SL_builtins.loc_ls ->
                 Formula.PointsTo (lhs, LS_t (fresh ()))
-            | _ when sort = Sort.loc_dls ->
+            | _ when sort = SL_builtins.loc_dls ->
                 Formula.PointsTo (lhs, DLS_t (fresh (), fresh ()))
-            | _ when sort = Sort.loc_nls ->
+            | _ when sort = SL_builtins.loc_nls ->
                 Formula.PointsTo (lhs, NLS_t (fresh (), fresh ()))
             | _ -> fail "unreachable transfer.ml:52" ))
       | None ->
-          let lhs = SSL.Variable.mk_fresh "leak" Sort.loc_ls in
+          let lhs = SL.Variable.mk_fresh "leak" SL_builtins.loc_ls in
           (lhs, Formula.PointsTo (lhs, LS_t (Common.mk_fresh_var_from lhs)))
     in
     [
@@ -84,38 +83,38 @@ module Tests = struct
   open Testing
 
   (* let%test_unit "assign" = *)
-  (*   let input = SSL.mk_star [ SSL.mk_pto x z; SSL.mk_pto y y' ] in *)
+  (*   let input = SL.mk_star [ SL.mk_pto x z; SL.mk_pto y y' ] in *)
   (*   (* x = y; *) *)
   (*   let result = Simplifier.simplify @@ assign x_var y_var input in *)
   (*   let expected = *)
-  (*     SSL.mk_star *)
-  (*       [ SSL.mk_pto (mk_var "x!0") z; SSL.mk_pto y y'; SSL.mk_eq x y ] *)
+  (*     SL.mk_star *)
+  (*       [ SL.mk_pto (mk_var "x!0") z; SL.mk_pto y y'; SL.mk_eq x y ] *)
   (*   in *)
   (*   assert_eq result expected *)
 
   (* let%test_unit "assign_lhs_deref" = *)
-  (*   let input = SSL.mk_star [ SSL.mk_pto x z ] in *)
+  (*   let input = SL.mk_star [ SL.mk_pto x z ] in *)
   (*   (* *x = y; *) *)
   (*   let result = assign_lhs_field x_var y_var input in *)
-  (*   let expected = SSL.mk_star [ SSL.mk_pto x y ] in *)
+  (*   let expected = SL.mk_star [ SL.mk_pto x y ] in *)
   (*   assert_eq_list result [ expected ] *)
   (**)
   (* let%test_unit "assign_lhs_deref2" = *)
-  (*   let input = SSL.mk_star [ SSL.mk_pto x z; SSL.mk_pto z z' ] in *)
+  (*   let input = SL.mk_star [ SL.mk_pto x z; SL.mk_pto z z' ] in *)
   (*   (* *x = y; *) *)
   (*   let result = assign_lhs_field x_var y_var input in *)
-  (*   let expected = SSL.mk_star [ SSL.mk_pto x y; SSL.mk_pto z z' ] in *)
+  (*   let expected = SL.mk_star [ SL.mk_pto x y; SL.mk_pto z z' ] in *)
   (*   assert_eq_list result [ expected ] *)
 
   (* let%test_unit "assign_rhs_deref" = *)
-  (*   let input = SSL.mk_star [ SSL.mk_pto x z; SSL.mk_pto y y' ] in *)
+  (*   let input = SL.mk_star [ SL.mk_pto x z; SL.mk_pto y y' ] in *)
   (*   (* x = *y; *) *)
   (*   let result = *)
   (*     List.map Simplifier.simplify (assign_rhs_field x_var y_var input) *)
   (*   in *)
   (*   let expected = *)
-  (*     SSL.mk_star *)
-  (*       [ SSL.mk_pto (mk_var "x!1") z; SSL.mk_pto y y'; SSL.mk_eq x y' ] *)
+  (*     SL.mk_star *)
+  (*       [ SL.mk_pto (mk_var "x!1") z; SL.mk_pto y y'; SL.mk_eq x y' ] *)
   (*   in *)
   (*   assert_eq_list result [ expected ] *)
 end

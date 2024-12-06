@@ -1,6 +1,5 @@
 open Cil_types
 open Astral
-open SSL.Struct
 include Formula
 
 let print_warn (msg : string) =
@@ -15,37 +14,37 @@ let print_warn_nl (msg : string) =
 let show_formula (f : t) : unit =
   List.map atom_to_string f |> String.concat " * " |> print_warn_nl
 
-let u = SSL.Variable.mk "u" Sort.loc_ls
-let v = SSL.Variable.mk "v" Sort.loc_ls
-let w = SSL.Variable.mk "w" Sort.loc_ls
-let x = SSL.Variable.mk "x" Sort.loc_ls
-let y = SSL.Variable.mk "y" Sort.loc_ls
-let z = SSL.Variable.mk "z" Sort.loc_ls
+let u = SL.Variable.mk "u" SL_builtins.loc_ls
+let v = SL.Variable.mk "v" SL_builtins.loc_ls
+let w = SL.Variable.mk "w" SL_builtins.loc_ls
+let x = SL.Variable.mk "x" SL_builtins.loc_ls
+let y = SL.Variable.mk "y" SL_builtins.loc_ls
+let z = SL.Variable.mk "z" SL_builtins.loc_ls
 
 (* fresh vars *)
-let u' = SSL.Variable.mk "u'" Sort.loc_ls
-let v' = SSL.Variable.mk "v!" Sort.loc_ls
-let w' = SSL.Variable.mk "w!" Sort.loc_ls
-let x' = SSL.Variable.mk "x!" Sort.loc_ls
-let y' = SSL.Variable.mk "y!" Sort.loc_ls
-let z' = SSL.Variable.mk "z!" Sort.loc_ls
+let u' = SL.Variable.mk "u'" SL_builtins.loc_ls
+let v' = SL.Variable.mk "v!" SL_builtins.loc_ls
+let w' = SL.Variable.mk "w!" SL_builtins.loc_ls
+let x' = SL.Variable.mk "x!" SL_builtins.loc_ls
+let y' = SL.Variable.mk "y!" SL_builtins.loc_ls
+let z' = SL.Variable.mk "z!" SL_builtins.loc_ls
 
 (* DLS sort vars *)
 module DLS = struct
-  let u = SSL.Variable.mk "u" Sort.loc_dls
-  let v = SSL.Variable.mk "v" Sort.loc_dls
-  let w = SSL.Variable.mk "w" Sort.loc_dls
-  let x = SSL.Variable.mk "x" Sort.loc_dls
-  let y = SSL.Variable.mk "y" Sort.loc_dls
-  let z = SSL.Variable.mk "z" Sort.loc_dls
+  let u = SL.Variable.mk "u" SL_builtins.loc_dls
+  let v = SL.Variable.mk "v" SL_builtins.loc_dls
+  let w = SL.Variable.mk "w" SL_builtins.loc_dls
+  let x = SL.Variable.mk "x" SL_builtins.loc_dls
+  let y = SL.Variable.mk "y" SL_builtins.loc_dls
+  let z = SL.Variable.mk "z" SL_builtins.loc_dls
 
   (* fresh vars *)
-  let u' = SSL.Variable.mk "u'" Sort.loc_dls
-  let v' = SSL.Variable.mk "v!" Sort.loc_dls
-  let w' = SSL.Variable.mk "w!" Sort.loc_dls
-  let x' = SSL.Variable.mk "x!" Sort.loc_dls
-  let y' = SSL.Variable.mk "y!" Sort.loc_dls
-  let z' = SSL.Variable.mk "z!" Sort.loc_dls
+  let u' = SL.Variable.mk "u'" SL_builtins.loc_dls
+  let v' = SL.Variable.mk "v!" SL_builtins.loc_dls
+  let w' = SL.Variable.mk "w!" SL_builtins.loc_dls
+  let x' = SL.Variable.mk "x!" SL_builtins.loc_dls
+  let y' = SL.Variable.mk "y!" SL_builtins.loc_dls
+  let z' = SL.Variable.mk "z!" SL_builtins.loc_dls
 end
 
 let assert_eq (lhs : t) (rhs : t) : bool =

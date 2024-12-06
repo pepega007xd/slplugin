@@ -13,7 +13,8 @@ let copy state = state
 let pretty fmt state = Formula.pp_state fmt state
 let var = Preprocessing.varinfo_to_var
 
-(** this is the transfer function for instructions, we take the instr and previous state, and create new state *)
+(** this is the transfer function for instructions, we take the instr and
+    previous state, and create new state *)
 let doInstr _ (instr : instr) (prev_state : t) : t =
   (* this allows Ivette to load the current state of analysis (messages, AST properties, etc) *)
   Async.yield ();
@@ -203,8 +204,8 @@ module Tests = struct
 
   let changed joined_state old_state =
     not
-    @@ Astral_query.check_entailment (SSL.mk_or joined_state)
-         (SSL.mk_or old_state)
+    @@ Astral_query.check_entailment (SL.mk_or joined_state)
+         (SL.mk_or old_state)
 
   (* let%test_unit "join" = *)
   (*   let old_state = [ SSL.mk_star [ SSL.mk_pto x y' ] ] in *)

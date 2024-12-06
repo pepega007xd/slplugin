@@ -1,15 +1,16 @@
 open Astral
 open Common
 
-type var = SSL.Variable.t
+type var = SL.Variable.t
 type ls = { first : var; next : var; min_len : int }
 type dls = { first : var; last : var; prev : var; next : var; min_len : int }
 type nls = { first : var; top : var; next : var; min_len : int }
+type pto_target = LS_t of var | DLS_t of var * var | NLS_t of var * var
 
 type atom =
   | Eq of var list
   | Distinct of var * var
-  | PointsTo of var * SSL.Struct.t
+  | PointsTo of var * pto_target
   | LS of ls
   | DLS of dls
   | NLS of nls
@@ -19,7 +20,7 @@ type t = atom list
 (* state stored by each CFG node in dataflow analysis *)
 type state = t list
 
-let nil = SSL.Variable.nil
+let nil = SL.Variable.nil
 
 (** Constructors *)
 
@@ -38,9 +39,9 @@ let mk_nls (first : var) (top : var) (next : var) (min_len : int) =
 let atom_to_string : atom -> 'a =
   let var var =
     if Config.Print_sort.get () then
-      let sort = SSL.Variable.get_sort var |> Sort.show in
-      SSL.Variable.show var ^ ":" ^ sort
-    else SSL.Variable.show var
+      let sort = SL.Variable.get_sort var |> SL.Sort.show in
+      SL.Variable.show var ^ ":" ^ sort
+    else SL.Variable.show var
   in
   function
   | Eq vars -> vars |> List.map var |> String.concat " = "
@@ -82,110 +83,78 @@ let pp_state (fmt : Format.formatter) (state : state) =
 
 (** Conversion to and from Astral type *)
 
-let to_astral (formula : t) : SSL.t =
-  let map_vars = List.map (fun var -> SSL.Var var) in
-  let atoms =
-    List.map
-      (function
-        | Eq vars -> SSL.Eq (map_vars vars)
-        | Distinct (lhs, rhs) -> SSL.mk_distinct (Var lhs) (Var rhs)
-        | PointsTo (src, dst) -> SSL.PointsTo (Var src, dst)
-        | LS ls -> (
-            let first = SSL.Var ls.first in
-            let next = SSL.Var ls.next in
+let to_astral (f : t) : SL.t =
+  let v = SL.Term.of_var in
+  let map_vars = List.map SL.Term.of_var in
+  let map_atom = function
+    | Eq vars -> SL.mk_eq (map_vars vars)
+    | Distinct (lhs, rhs) -> SL.mk_distinct2 (v lhs) (v rhs)
+    | PointsTo (src, LS_t next) -> SL_builtins.mk_pto_ls (v src) ~next:(v next)
+    | PointsTo (src, DLS_t (next, prev)) ->
+        SL_builtins.mk_pto_dls (v src) ~next:(v next) ~prev:(v prev)
+    | PointsTo (src, NLS_t (top, next)) ->
+        SL_builtins.mk_pto_nls (v src) ~top:(v top) ~next:(v next)
+    | LS ls -> (
+        let first = v ls.first in
+        let next = v ls.next in
 
-            let ls_0 = SSL.mk_ls first next in
-            let ls_1 = SSL.mk_star [ ls_0; SSL.mk_distinct first next ] in
+        let ls_0 = SL_builtins.mk_ls first ~sink:next in
+        let ls_1 = SL.mk_star [ ls_0; SL.mk_distinct2 first next ] in
 
-            match ls.min_len with
-            | 0 -> ls_0
-            | 1 -> ls_1
-            | _ -> SSL.mk_gneg ls_1 (SSL.mk_pto first next))
-        | DLS dls -> (
-            let first = SSL.Var dls.first in
-            let last = SSL.Var dls.last in
-            let prev = SSL.Var dls.prev in
-            let next = SSL.Var dls.next in
+        match ls.min_len with
+        | 0 -> ls_0
+        | 1 -> ls_1
+        | _ -> SL.mk_gneg ls_1 (SL_builtins.mk_pto_ls first ~next))
+    | DLS dls -> (
+        let first = v dls.first in
+        let last = v dls.last in
+        let prev = v dls.prev in
+        let next = v dls.next in
 
-            let dls_0 = SSL.mk_dls first last prev next in
-            let dls_1 = SSL.mk_star [ dls_0; SSL.mk_distinct first next ] in
-            let dls_2 =
-              SSL.mk_star
-                [
-                  dls_0; SSL.mk_distinct first next; SSL.mk_distinct first last;
-                ]
-            in
+        (* TODO: is the order correct? *)
+        let dls_0 =
+          SL_builtins.mk_dls first ~sink:next ~root':last ~sink':prev
+        in
+        let dls_1 = SL.mk_star [ dls_0; SL.mk_distinct2 first next ] in
+        let dls_2 =
+          SL.mk_star
+            [ dls_0; SL.mk_distinct2 first next; SL.mk_distinct2 first last ]
+        in
 
-            match dls.min_len with
-            | 0 -> dls_0
-            | 1 -> dls_1
-            | 2 -> dls_2
-            | _ ->
-                SSL.mk_gneg dls_2
-                  (SSL.mk_star
-                     [
-                       SSL.mk_pto_dls first last prev;
-                       SSL.mk_pto_dls last next first;
-                     ]))
-        | NLS nls -> (
-            let first = SSL.Var nls.first in
-            let top = SSL.Var nls.top in
-            let next = SSL.Var nls.next in
-            let nls_0 = SSL.mk_nls first top next in
-            let nls_1 = SSL.mk_star [ nls_0; SSL.mk_distinct first top ] in
-            let fresh = SSL.Var (Common.mk_fresh_var_from nls.next) in
-            match nls.min_len with
-            | 0 -> nls_0
-            | 1 -> nls_1
-            | _ ->
-                SSL.mk_gneg nls_1
-                  (SSL.mk_star
-                     [ SSL.mk_pto_nls first top fresh; SSL.mk_ls fresh next ])))
-      formula
+        match dls.min_len with
+        | 0 -> dls_0
+        | 1 -> dls_1
+        | 2 -> dls_2
+        | _ ->
+            SL.mk_gneg dls_2
+              (SL.mk_star
+                 [
+                   SL_builtins.mk_pto_dls first ~next:last ~prev;
+                   SL_builtins.mk_pto_dls last ~next ~prev:first;
+                 ]))
+    | NLS nls -> (
+        let first = v nls.first in
+        let top = v nls.top in
+        let next = v nls.next in
+        let nls_0 = SL_builtins.mk_nls first ~sink:top ~bottom:next in
+        let nls_1 = SL.mk_star [ nls_0; SL.mk_distinct2 first top ] in
+        let first_next = SL.Term.mk_heap_term MemoryModel.Field.next first in
+        match nls.min_len with
+        | 0 -> nls_0
+        | 1 -> nls_1
+        | _ ->
+            (* TODO: does this make sense? *)
+            SL.mk_gneg nls_1
+              (SL.mk_star
+                 [
+                   SL_builtins.mk_pto_nls first ~top ~next:first_next;
+                   SL_builtins.mk_ls first_next ~sink:next;
+                 ]))
   in
-  SSL.Star atoms
+  SL.mk_star (List.map map_atom f)
 
-let state_to_astral (state : state) : SSL.t =
-  state |> List.map to_astral |> SSL.mk_or
-
-let from_astral_atom : SSL.t -> atom =
-  let get_var = function
-    | SSL.Var var -> var
-    | _ -> fail "unreachable formula.ml:100"
-  in
-  let map_vars = List.map get_var in
-
-  function
-  | SSL.Eq vars -> Eq (map_vars vars)
-  | SSL.Distinct [ Var lhs; Var rhs ] -> Distinct (lhs, rhs)
-  | SSL.PointsTo (Var src, dst) -> PointsTo (src, dst)
-  | SSL.LS (Var first, Var next) -> LS { first; next; min_len = 0 }
-  | SSL.DLS (Var first, Var last, Var prev, Var next) ->
-      DLS { first; last; prev; next; min_len = 0 }
-  | SSL.NLS (Var first, Var top, Var next) ->
-      NLS { first; top; next; min_len = 0 }
-  | SSL.Star (inner :: rest) -> (
-      match inner with
-      | SSL.LS (Var first, Var next) -> LS { first; next; min_len = 1 }
-      | SSL.DLS (Var first, Var last, Var prev, Var next) ->
-          DLS { first; last; prev; next; min_len = List.length rest }
-      | SSL.NLS (Var first, Var top, Var next) ->
-          NLS { first; top; next; min_len = 1 }
-      | _ -> fail "invalid formula shape")
-  | SSL.GuardedNeg (SSL.Star (inner :: _), _) -> (
-      match inner with
-      | SSL.LS (Var first, Var next) -> LS { first; next; min_len = 2 }
-      | SSL.DLS (Var first, Var last, Var prev, Var next) ->
-          DLS { first; last; prev; next; min_len = 3 }
-      | SSL.NLS (Var first, Var top, Var next) ->
-          NLS { first; top; next; min_len = 2 }
-      | _ -> fail "invalid formula shape")
-  | _ -> fail "invalid formula shape"
-
-let from_astral : SSL.t -> t = function
-  | SSL.Star atoms -> List.map from_astral_atom atoms
-  | SSL.Emp -> []
-  | other -> fail "unreachable formula.ml:136: %a" SSL.pp other
+let state_to_astral (state : state) : SL.t =
+  state |> List.map to_astral |> SL.mk_or
 
 (** Variables *)
 
@@ -205,14 +174,43 @@ let get_vars (f : t) : var list =
 let get_fresh_vars (f : t) : var list =
   f |> get_vars |> List.filter is_fresh_var
 
+let subsitute_in_atom (old_var : var) (new_var : var) : atom -> atom =
+  let v (var : var) : var = if var = old_var then new_var else var in
+
+  function
+  | Eq vars -> Eq (List.map v vars)
+  | Distinct (lhs, rhs) -> Distinct (v lhs, v rhs)
+  | PointsTo (src, LS_t next) -> PointsTo (v src, LS_t (v next))
+  | PointsTo (src, DLS_t (next, prev)) ->
+      PointsTo (v src, DLS_t (v next, v prev))
+  | PointsTo (src, NLS_t (top, next)) -> PointsTo (v src, DLS_t (v top, v next))
+  | LS ls -> LS { first = v ls.first; next = v ls.next; min_len = ls.min_len }
+  | DLS dls ->
+      DLS
+        {
+          first = v dls.first;
+          last = v dls.last;
+          prev = v dls.prev;
+          next = v dls.next;
+          min_len = dls.min_len;
+        }
+  | NLS nls ->
+      NLS
+        {
+          first = v nls.first;
+          top = v nls.top;
+          next = v nls.next;
+          min_len = nls.min_len;
+        }
+
 let substitute (f : t) ~(var : var) ~(by : var) : t =
-  f |> to_astral |> SSL.substitute ~var ~by |> from_astral
+  List.map (subsitute_in_atom var by) f
 
 let substitute_by_fresh (var : var) : t -> t =
   substitute ~var ~by:(mk_fresh_var_from var)
 
 let swap_vars (var1 : var) (var2 : var) (f : t) =
-  let tmp_name = SSL.Variable.mk "__tmp_var" Sort.loc_nil in
+  let tmp_name = SL.Variable.mk "__tmp_var" SL.Sort.loc_nil in
   f
   |> substitute ~var:var1 ~by:tmp_name
   |> substitute ~var:var2 ~by:var1
@@ -223,7 +221,7 @@ let standardize_fresh_var_names (f : t) : t =
   let names =
     List.mapi
       (fun idx var ->
-        SSL.Variable.mk ("!" ^ string_of_int idx) (SSL.Variable.get_sort var))
+        SL.Variable.mk ("!" ^ string_of_int idx) (SL.Variable.get_sort var))
       vars
   in
   List.fold_left2 (fun f var by -> substitute ~var ~by f) f vars names
@@ -301,7 +299,7 @@ let get_spatial_atom_from (src : var) (f : t) : atom =
   get_spatial_atom_from_opt src f |> function
   | Some atom -> atom
   | None ->
-      fail "Variable %a is not allocated in %a" SSL.Variable.pp src pp_formula f
+      fail "Variable %a is not allocated in %a" SL.Variable.pp src pp_formula f
 
 let get_target_of_atom (field : Preprocessing.field_type) (atom : atom) : var =
   match (atom, field) with
@@ -348,7 +346,6 @@ let change_pto_target (src : var) (field : Preprocessing.field_type)
     | PointsTo (_, old_struct) -> old_struct
     | _ -> fail "unreachable formula.ml:259"
   in
-  let open SSL.Struct in
   let new_struct =
     match (field, old_struct) with
     | Next, LS_t _ -> LS_t new_target
@@ -428,8 +425,9 @@ let add_distinct (lhs : var) (rhs : var) (f : t) : t =
 
 (** Materialization *)
 
-(** transforms [formula] so that [var] is a part of a points-to atom, not a list segment,
-   multiple formulas can be produced, representing different lengths of [ls] (1, 2+) *)
+(** transforms [formula] so that [var] is a part of a points-to atom, not a list
+    segment, multiple formulas can be produced, representing different lengths
+    of [ls] (1, 2+) *)
 let rec materialize (var : var) (f : t) : t list =
   let fresh_var = mk_fresh_var_from var in
   let f = make_var_explicit_src var f in
@@ -542,7 +540,8 @@ let split_by_reachability (vars : var list) (f : t) : t * t =
 
   (reachable_equiv_classes @ reachable_spatials @ reachable_distincts, rest)
 
-(** returns true when variable appears only once in the formula, [Distinct] atoms are ignored *)
+(** returns true when variable appears only once in the formula, [Distinct]
+    atoms are ignored *)
 let count_occurences_excl_distinct (var : var) (f : t) : int =
   f
   |> List.filter (function Distinct _ -> false | _ -> true)

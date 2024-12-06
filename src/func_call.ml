@@ -16,12 +16,12 @@ let results : (Cil_types.stmt, Formula.state) Hashtbl.t ref =
   ref (Hashtbl.create 113)
 
 let get_anchor (var : Formula.var) : Formula.var =
-  let name = SSL.Variable.get_name var in
-  SSL.Variable.mk
+  let name = SL.Variable.get_name var in
+  SL.Variable.mk
     (* '$' is used not to collide with an existing var name, eg. x!0 -> x_0,
        it has no special meaning, x$0 behaves like a regular program variable *)
     ("A_" ^ String.map (function '!' -> '$' | c -> c) name)
-    (SSL.Variable.get_sort var)
+    (SL.Variable.get_sort var)
 
 let run_analysis (func : Kernel_function.t) (formula : Formula.t) :
     Formula.state =
@@ -87,7 +87,7 @@ let func_call (args : Formula.var list) (func : varinfo) (formula : Formula.t)
         let return_var =
           match return_stmt.skind with
           | Return (Some { enode = Lval (Var var, NoOffset); _ }, _) ->
-              SSL.Variable.mk var.vname (SSL.Variable.get_sort lhs)
+              SL.Variable.mk var.vname (SL.Variable.get_sort lhs)
           | _ ->
               fail
                 "function which is supposed to return something does not have \
