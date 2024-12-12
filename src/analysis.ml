@@ -16,7 +16,8 @@ let var = Preprocessing.varinfo_to_var
 (** this is the transfer function for instructions, we take the instr and
     previous state, and create new state *)
 let doInstr _ (instr : instr) (prev_state : t) : t =
-  (* this allows Ivette to load the current state of analysis (messages, AST properties, etc) *)
+  (* this allows Ivette to load the current
+     state of analysis (messages, AST properties, etc) *)
   Async.yield ();
 
   let new_state =
@@ -73,6 +74,8 @@ let deduplicate_states (state : t) : t =
 (* iterate over all formulas of new_state [phi], and each one that doesn't satisfy
    (phi => old) has to be added to [old]. If old is not changed, None is returned. *)
 let combinePredecessors _ ~old:(old_state : t) (new_state : t) : t option =
+  Async.yield ();
+
   let joined_state = deduplicate_states @@ old_state @ new_state in
 
   if
@@ -93,6 +96,8 @@ let combinePredecessors _ ~old:(old_state : t) (new_state : t) : t option =
 (* we need to filter the formulas of [state] for each branch to only those,
    which are satisfiable in each of the branches *)
 let doGuard _ (condition : exp) (state : t) : t guardaction * t guardaction =
+  Async.yield ();
+
   let th, el =
     match condition.enode with
     | BinOp
@@ -128,6 +133,8 @@ let doStmt (_ : stmt) (_ : t) : t stmtaction = SDefault
 
 (* simplify formulas and filter out unsatisfiable ones *)
 let doEdge (prev_stmt : stmt) (next_stmt : stmt) (state : t) : t =
+  Async.yield ();
+
   let end_of_scope_locals =
     Kernel_function.blocks_closed_by_edge prev_stmt next_stmt
     |> List.concat_map (fun block -> block.blocals)

@@ -17,7 +17,7 @@ let run_analysis () =
   ForwardsAnalysis.compute [ first_stmt ];
 
   Solver.dump_stats !Astral_query.solver;
-  Self.debug "Astral took %.2f seconds" !Astral_query.solver_time
+  Self.result "Astral took %.2f seconds" !Astral_query.solver_time
 
 let run_with_stacktrace_printing () =
   Printexc.record_backtrace true;

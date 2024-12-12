@@ -183,7 +183,7 @@ let subsitute_in_atom (old_var : var) (new_var : var) : atom -> atom =
   | PointsTo (src, LS_t next) -> PointsTo (v src, LS_t (v next))
   | PointsTo (src, DLS_t (next, prev)) ->
       PointsTo (v src, DLS_t (v next, v prev))
-  | PointsTo (src, NLS_t (top, next)) -> PointsTo (v src, DLS_t (v top, v next))
+  | PointsTo (src, NLS_t (top, next)) -> PointsTo (v src, NLS_t (v top, v next))
   | LS ls -> LS { first = v ls.first; next = v ls.next; min_len = ls.min_len }
   | DLS dls ->
       DLS
