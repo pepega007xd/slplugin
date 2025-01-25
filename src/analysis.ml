@@ -1,5 +1,4 @@
 open Config
-open Astral
 open Cil_types
 open Common
 open Dataflow2
@@ -53,36 +52,42 @@ let doInstr _ (instr : instr) (prev_state : t) : t =
 let computeFirstPredecessor _ state = state
 
 let deduplicate_states (state : t) : t =
-  let rec select_to_keep (to_keep : t) (to_check : t) : t =
-    match to_check with
-    | [] -> to_keep
-    | [ current ] when to_keep = [] -> [ current ]
-    | current :: rest ->
-        if
-          Astral_query.check_entailment
-            (Formula.to_astral current)
-            (Formula.state_to_astral (to_keep @ rest))
-        then
-          (* [current] is already contained in the other formulas *)
-          select_to_keep to_keep rest
-        else
-          (* [current] has unique models, add it to [to_keep] *)
-          select_to_keep (current :: to_keep) rest
+  let is_covered current to_keep =
+    if Config.Simple_join.get () then
+      List.exists
+        (fun formula_to_keep ->
+          Astral_query.check_entailment [ current ] [ formula_to_keep ])
+        to_keep
+    else Astral_query.check_entailment [ current ] to_keep
   in
-  select_to_keep [] state
+
+  state
+  |> List.sort Formula.compare_bounds
+  |> List.fold_left
+       (fun to_keep current ->
+         if is_covered current to_keep then to_keep else current :: to_keep)
+       []
 
 (* iterate over all formulas of new_state [phi], and each one that doesn't satisfy
    (phi => old) has to be added to [old]. If old is not changed, None is returned. *)
 let combinePredecessors _ ~old:(old_state : t) (new_state : t) : t option =
   Async.yield ();
 
-  let joined_state = deduplicate_states @@ old_state @ new_state in
+  let joined_state = deduplicate_states @@ new_state @ old_state in
 
-  if
-    Astral_query.check_entailment
-      (Formula.state_to_astral joined_state)
-      (Formula.state_to_astral old_state)
-  then (
+  let state_changed joined_state old_state =
+    if Config.Simple_join.get () then
+      List.for_all
+        (fun joined_formula ->
+          List.exists
+            (fun old_formula ->
+              Astral_query.check_entailment [ joined_formula ] [ old_formula ])
+            old_state)
+        joined_state
+    else Astral_query.check_entailment joined_state old_state
+  in
+
+  if state_changed joined_state old_state then (
     Self.debug ~current:true ~dkey:Printing.combine_predecessors
       "old state:\n%anew state:\n%a<state did not change>" Formula.pp_state
       old_state Formula.pp_state new_state;
@@ -209,23 +214,25 @@ module Tests = struct
     let expected = [ Distinct (x, y) ] in
     assert_eq (List.sort_uniq compare input) expected
 
-  let changed joined_state old_state =
-    not
-    @@ Astral_query.check_entailment (SL.mk_or joined_state)
-         (SL.mk_or old_state)
+  let%test "join_1" =
+    let input = [ [ PointsTo (x, LS_t y') ]; [ PointsTo (x, LS_t z') ] ] in
+    let expected = [ [ PointsTo (x, LS_t y') ] ] in
+    let joined = deduplicate_states input in
+    assert_eq_state joined expected
 
-  (* let%test_unit "join" = *)
-  (*   let old_state = [ SSL.mk_star [ SSL.mk_pto x y' ] ] in *)
-  (*   let new_state = [ SSL.mk_star [ SSL.mk_pto x z' ] ] in *)
-  (*   let joined = deduplicate_states @@ old_state @ new_state in *)
-  (*   assert_eq_list old_state joined *)
-  (**)
-  (* let%test_unit "join" = *)
-  (*   let old_state = [ SSL.mk_star [ SSL.mk_pto x y ] ] in *)
-  (*   let new_state = [ SSL.mk_star [ SSL.mk_pto x z ] ] in *)
-  (*   let joined = deduplicate_states @@ old_state @ new_state in *)
-  (*   assert_eq_list (old_state @ new_state) joined *)
-  (**)
+  let%test "join_2" =
+    let input = [ [ PointsTo (x, LS_t y) ]; [ PointsTo (x, LS_t z) ] ] in
+    let joined = deduplicate_states input in
+    assert_eq_state joined input
+
+  let%test "join_ls" =
+    List.init 3 Fun.id
+    |> List.for_all (fun len ->
+           let input = [ [ mk_ls x y' len ]; [ mk_ls x z' len ] ] in
+           let expected = [ [ mk_ls x y' len ] ] in
+           let joined = deduplicate_states input in
+           assert_eq_state joined expected)
+
   (* let%test_unit "join_ls" = *)
   (*   let old_state = [ SSL.mk_star [ SSL.mk_pto x y ] ] in *)
   (*   let new_state = [ SSL.mk_star [ SSL.mk_ls x y; SSL.mk_distinct x y ] ] in *)

@@ -45,7 +45,6 @@ let convert_to_ls (formula : Formula.t) : Formula.t =
   formula |> List.filter_map atom_to_ls |> List.fold_left do_abstraction formula
 
 let convert_to_dls (formula : Formula.t) : Formula.t =
-  (* Formula.show_formula formula; *)
   let atom_to_dls (atom : Formula.atom) : Formula.dls option =
     atom |> Formula.pto_to_list |> function
     | Formula.DLS dls -> Some dls
@@ -292,16 +291,10 @@ module Tests_DLS = struct
         PointsTo (v', DLS_t (w, u));
         PointsTo (w, DLS_t (x, v'));
         Distinct (v', z);
-        Distinct (z, w);
       ]
     in
     let expected =
-      [
-        mk_dls u v' z w 2;
-        PointsTo (w, DLS_t (x, v'));
-        Distinct (v', z);
-        Distinct (z, w);
-      ]
+      [ mk_dls u v' z w 2; PointsTo (w, DLS_t (x, v')); Distinct (v', z) ]
     in
     assert_eq (convert_to_dls @@ convert_to_dls input) expected
 

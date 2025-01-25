@@ -85,9 +85,8 @@ let pp_state (fmt : Format.formatter) (state : state) =
 
 let to_astral (f : t) : SL.t =
   let v = SL.Term.of_var in
-  let map_vars = List.map SL.Term.of_var in
   let map_atom = function
-    | Eq vars -> SL.mk_eq (map_vars vars)
+    | Eq vars -> SL.mk_eq (List.map v vars)
     | Distinct (lhs, rhs) -> SL.mk_distinct2 (v lhs) (v rhs)
     | PointsTo (src, LS_t next) -> SL_builtins.mk_pto_ls (v src) ~next:(v next)
     | PointsTo (src, DLS_t (next, prev)) ->
@@ -111,7 +110,6 @@ let to_astral (f : t) : SL.t =
         let prev = v dls.prev in
         let next = v dls.next in
 
-        (* TODO: is the order correct? *)
         let dls_0 =
           SL_builtins.mk_dls first ~sink:next ~root':last ~sink':prev
         in
@@ -482,7 +480,7 @@ let rec materialize (var : var) (f : t) : t list =
   (* case where NLS has minimum length of at least one *)
   | NLS nls when nls.min_len > 0 ->
       (* materalization of NLS produces a LS_0+ from fresh_var to `nls.next` *)
-      let fresh_ls = mk_fresh_var_from nls.next in
+      let fresh_ls = SL.Variable.mk_fresh "fresh" Sort.loc_ls in
       [
         f
         |> add_atom (PointsTo (var, NLS_t (fresh_var, fresh_ls)))
@@ -490,7 +488,7 @@ let rec materialize (var : var) (f : t) : t list =
         |> add_atom @@ mk_nls fresh_var nls.top nls.next (nls.min_len - 1);
       ]
   | NLS nls ->
-      let fresh_ls = mk_fresh_var_from nls.next in
+      let fresh_ls = SL.Variable.mk_fresh "fresh" Sort.loc_ls in
       (* length 1+ case *)
       (f
       |> add_atom (PointsTo (var, NLS_t (fresh_var, fresh_ls)))
@@ -546,3 +544,28 @@ let count_occurences_excl_distinct (var : var) (f : t) : int =
   f
   |> List.filter (function Distinct _ -> false | _ -> true)
   |> get_vars |> Common.list_count var
+
+let canonicalize (f : t) : t =
+  let c = SL.Variable.compare in
+  let vars = f |> get_vars |> List.sort_uniq c in
+
+  List.fold_left (fun f var -> make_var_explicit_src var f) f vars
+  |> List.map (function
+       | Eq vars -> Eq (List.sort_uniq c vars)
+       | Distinct (lhs, rhs) ->
+           if c lhs rhs > 0 then Distinct (lhs, rhs) else Distinct (rhs, lhs)
+       | c -> c)
+  |> List.sort_uniq compare
+
+let canonicalize_state (state : state) : state =
+  state |> List.map canonicalize |> List.sort_uniq compare
+
+let sum_of_bounds (f : t) : int =
+  f
+  |> List.map (function
+       | LS { min_len; _ } | DLS { min_len; _ } | NLS { min_len; _ } -> min_len
+       | _ -> 0)
+  |> List.fold_left ( + ) 0
+
+let compare_bounds (lhs : t) (rhs : t) : int =
+  sum_of_bounds lhs - sum_of_bounds rhs

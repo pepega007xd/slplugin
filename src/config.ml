@@ -62,3 +62,13 @@ module Print_sort = Self.False (struct
   let option_name = "-sl-print-sort"
   let help = "Print sort of variables along with their names"
 end)
+
+module Simple_join = Self.False (struct
+  let option_name = "-sl-simple-join"
+  let help = "Compute join of states using entailment on single formulas"
+end)
+
+module Astral_debug = Self.False (struct
+  let option_name = "-sl-astral-debug"
+  let help = "Print info about queries to Astral"
+end)
