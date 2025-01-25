@@ -15,6 +15,9 @@ let compute_function : (Cil_types.stmt list -> unit) ref =
 let results : (Cil_types.stmt, Formula.state) Hashtbl.t ref =
   ref (Hashtbl.create 113)
 
+let previous_results : (Cil_types.stmt, Formula.state) Hashtbl.t list ref =
+  ref []
+
 let get_anchor (var : Formula.var) : Formula.var =
   let name = SL.Variable.get_name var in
   SL.Variable.mk
@@ -34,6 +37,8 @@ let run_analysis (func : Kernel_function.t) (formula : Formula.t) :
   Hashtbl.add !results first_stmt [ formula ];
   !compute_function [ first_stmt ];
   let result_state = Hashtbl.find !results return_stmt in
+
+  previous_results := !results :: !previous_results;
   (* restore current state of analysis *)
   results := current_results;
 
@@ -127,3 +132,6 @@ let func_call (args : Formula.var list) (func : varinfo) (formula : Formula.t)
     unreachable;
 
   List.map convert_back_result result_state
+
+let merge_all_results () =
+  List.iter (Hashtbl.iter (Hashtbl.replace !results)) !previous_results

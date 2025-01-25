@@ -16,6 +16,8 @@ let run_analysis () =
 
   ForwardsAnalysis.compute [ first_stmt ];
 
+  Func_call.merge_all_results ();
+
   Solver.dump_stats !Astral_query.solver;
   Self.result "Astral took %.2f seconds" !Astral_query.solver_time
 
