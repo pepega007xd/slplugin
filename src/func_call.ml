@@ -41,6 +41,7 @@ let run_analysis (func : Kernel_function.t) (formula : Formula.t) :
 
 let get_result_state (func : Kernel_function.t) (formula : Formula.t) :
     Formula.state =
+  (* TODO: maybe canonicalize formula before creating a summary? *)
   let summary_input = Formula.standardize_fresh_var_names formula in
   Hashtbl.find_opt !summaries (func, summary_input) |> function
   | Some result -> result
