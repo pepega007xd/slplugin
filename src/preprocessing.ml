@@ -6,8 +6,8 @@ module Printer = Frama_c_kernel.Printer
 
 let null_var_name = "_nil"
 let const_var_name = "_const"
-let nullptr_var = makeVarinfo false false null_var_name voidPtrType
-let const_var = makeVarinfo false false const_var_name voidPtrType
+let nullptr_var = makeVarinfo false false null_var_name Cil_const.voidPtrType
+let const_var = makeVarinfo false false const_var_name Cil_const.voidPtrType
 
 let remove_casts =
   object
@@ -296,14 +296,14 @@ let convert_condition (func : fundec) (condition : exp) (th : block)
     match condition.enode with
     | Lval lval ->
         let var, _ = lval_to_var lval in
-        new_if (BinOp (Ne, evar var, evar nullptr_var, intType))
+        new_if (BinOp (Ne, evar var, evar nullptr_var, Cil_const.intType))
     | UnOp (BNot, { enode = Lval lval; _ }, _) ->
         let var, _ = lval_to_var lval in
-        new_if (BinOp (Eq, evar var, evar nullptr_var, intType))
+        new_if (BinOp (Eq, evar var, evar nullptr_var, Cil_const.intType))
     | BinOp (operator, { enode = Lval lhs; _ }, { enode = Lval rhs; _ }, _) ->
         let lhs, _ = lval_to_var lhs in
         let rhs, _ = lval_to_var rhs in
-        new_if (BinOp (operator, evar lhs, evar rhs, intType))
+        new_if (BinOp (operator, evar lhs, evar rhs, Cil_const.intType))
     | _ -> nondeterministic
   in
   block.bstmts <-
@@ -409,11 +409,13 @@ let simplify_conditions =
             match condition.enode with
             | Lval (Var var, NoOffset) ->
                 if is_list_type var.vtype then
-                  new_if (BinOp (Ne, evar var, evar nullptr_var, intType))
+                  new_if
+                    (BinOp (Ne, evar var, evar nullptr_var, Cil_const.intType))
                 else nondeterministic
             | UnOp (BNot, { enode = Lval (Var var, NoOffset); _ }, _) ->
                 if is_list_type var.vtype then
-                  new_if (BinOp (Eq, evar var, evar nullptr_var, intType))
+                  new_if
+                    (BinOp (Eq, evar var, evar nullptr_var, Cil_const.intType))
                 else nondeterministic
             | BinOp
                 ( (Eq | Ne),
