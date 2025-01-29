@@ -32,8 +32,8 @@ let replace_constants =
       | _ -> DoChildren
   end
 
-type list_type = Sll | Dll | Nl | Other
-type field_type = Next | Prev | Top | Data
+type struct_type = Sll | Dll | Nl | Other
+type field_type = Next | Prev | Top | Other of string | Data
 
 let rec get_self_and_sll_fields (structure : compinfo) :
     fieldinfo list * fieldinfo list =
@@ -55,13 +55,13 @@ let rec get_self_and_sll_fields (structure : compinfo) :
     List.filter
       (fun field ->
         match field.ftype with
-        | TPtr (typ, _) -> get_list_type typ = Sll
+        | TPtr (typ, _) -> get_struct_type typ = Sll
         | _ -> false)
       other_pointers
   in
   (self_pointers, sll_pointers)
 
-and get_list_type (t : typ) : list_type =
+and get_struct_type (t : typ) : struct_type =
   match unrollTypeDeep t with
   | TPtr (TComp (structure, _), _) | TComp (structure, _) -> (
       let self_pointers, sll_pointers = get_self_and_sll_fields structure in
@@ -74,9 +74,9 @@ and get_list_type (t : typ) : list_type =
   | _ -> Other
 
 let is_list_type (t : typ) : bool =
-  match get_list_type t with Sll | Dll | Nl -> true | Other -> false
+  match get_struct_type t with Sll | Dll | Nl -> true | Other -> false
 
-let list_type_to_sort : list_type -> SL.Sort.t = function
+let list_type_to_sort : struct_type -> SL.Sort.t = function
   | Sll -> SL_builtins.loc_ls
   | Dll -> SL_builtins.loc_dls
   | Nl -> SL_builtins.loc_nls
@@ -87,7 +87,7 @@ let varinfo_to_var (varinfo : Cil_types.varinfo) : SL.Variable.t =
   if varinfo.vname = null_var_name then SL.Variable.nil
   else
     SL.Variable.mk varinfo.vname
-      (varinfo.vtype |> get_list_type |> list_type_to_sort)
+      (varinfo.vtype |> get_struct_type |> list_type_to_sort)
 
 and get_field_type (field : fieldinfo) : field_type =
   let self_pointers, sll_pointers = get_self_and_sll_fields field.fcomp in

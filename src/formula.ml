@@ -5,7 +5,13 @@ type var = SL.Variable.t
 type ls = { first : var; next : var; min_len : int }
 type dls = { first : var; last : var; prev : var; next : var; min_len : int }
 type nls = { first : var; top : var; next : var; min_len : int }
-type pto_target = LS_t of var | DLS_t of var * var | NLS_t of var * var
+type target = string * var
+
+type pto_target =
+  | LS_t of var
+  | DLS_t of var * var
+  | NLS_t of var * var
+  | Generic of target list
 
 type atom =
   | Eq of var list
@@ -51,6 +57,12 @@ let atom_to_string : atom -> 'a =
       Format.sprintf "%s -> n:%s,p:%s" (var src) (var next) (var prev)
   | PointsTo (src, NLS_t (top, next)) ->
       Format.sprintf "%s -> t:%s,n:%s" (var src) (var top) (var next)
+  | PointsTo (src, Generic vars) ->
+      Format.sprintf "%s -> {%s}" (var src)
+        (vars
+        |> List.map (fun (name, var) ->
+               Format.sprintf "%s:%s" name (SL.Variable.get_name var))
+        |> String.concat " ")
   | LS ls ->
       Format.sprintf "ls_%d+(%s,%s)" ls.min_len (var ls.first) (var ls.next)
   | DLS dls ->
@@ -93,6 +105,10 @@ let to_astral (f : t) : SL.t =
         SL_builtins.mk_pto_dls (v src) ~next:(v next) ~prev:(v prev)
     | PointsTo (src, NLS_t (top, next)) ->
         SL_builtins.mk_pto_nls (v src) ~top:(v top) ~next:(v next)
+    | PointsTo (src, Generic vars) ->
+        (* let map_var () = SL.Term.mk_heap_term (MemoryModel0.Field.mk) var in *)
+        (* TODO: translation *)
+        SL.mk_pto_tuple (v src) []
     | LS ls -> (
         let first = v ls.first in
         let next = v ls.next in
@@ -164,6 +180,7 @@ let get_vars (f : t) : var list =
       | PointsTo (src, LS_t next) -> [ src; next ]
       | PointsTo (src, DLS_t (next, prev)) -> [ src; next; prev ]
       | PointsTo (src, NLS_t (top, next)) -> [ src; next; top ]
+      | PointsTo (src, Generic vars) -> src :: List.map snd vars
       | LS ls -> [ ls.first; ls.next ]
       | DLS dls -> [ dls.first; dls.last; dls.prev; dls.next ]
       | NLS nls -> [ nls.first; nls.top; nls.next ])
@@ -182,6 +199,9 @@ let subsitute_in_atom (old_var : var) (new_var : var) : atom -> atom =
   | PointsTo (src, DLS_t (next, prev)) ->
       PointsTo (v src, DLS_t (v next, v prev))
   | PointsTo (src, NLS_t (top, next)) -> PointsTo (v src, NLS_t (v top, v next))
+  | PointsTo (src, Generic vars) ->
+      PointsTo
+        (v src, Generic (vars |> List.map (fun (name, var) -> (name, v var))))
   | LS ls -> LS { first = v ls.first; next = v ls.next; min_len = ls.min_len }
   | DLS dls ->
       DLS
