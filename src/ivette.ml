@@ -16,7 +16,7 @@ let () =
 let print_type_heuristic (fmt : Format.formatter)
     (loc : Printer_tag.localizable) : unit =
   let get_list_type typ =
-    match Preprocessing.get_list_type typ with
+    match Preprocessing.get_struct_type typ with
     | Sll -> Some "Singly linked list"
     | Dll -> Some "Doubly linked list"
     | Nl -> Some "Nested list"
@@ -45,6 +45,7 @@ let print_type_heuristic_on_field (fmt : Format.formatter)
         | Next -> Some "next"
         | Prev -> Some "prev"
         | Top -> Some "top"
+        | Other name -> Some ("other: " ^ name)
         | Data -> Some "data")
     | _ -> None
   in
