@@ -1,6 +1,6 @@
 (env
   (dev
-    (flags 
+    (flags
       (:standard
         ; turn errors into warnings
         -warn-error -26 ; Unused var
@@ -16,25 +16,24 @@
   (name slplugin)
   (public_name frama-c-slplugin.core)
   (modules :standard)
-  (flags 
+  (flags
     :standard
     -open Frama_c_kernel
     -g
   )
-  (libraries 
-    frama-c.kernel 
-    frama-c-server.core 
+  (libraries
+    frama-c.kernel
+    frama-c-server.core
     astral
   )
-  (inline_tests 
+  (inline_tests
     ; this is required to run inline tests in frama-c plugin
     ; https://git.frama-c.com/pub/frama-c/-/issues/2691
     (libraries frama-c.init.cmdline)
     (flags (-stop-on-error))
   )
-  (preprocess 
+  (preprocess
     (pps
-      ppx_assert 
       ppx_inline_test
     )
   )
