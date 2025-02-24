@@ -60,9 +60,17 @@ let func_call (args : Formula.var list) (func : varinfo) (formula : Formula.t)
   let func = Globals.Functions.get func in
   let fundec = Kernel_function.get_definition func in
   let return_stmt = Kernel_function.find_return func in
-  let params = fundec.sformals |> List.map Preprocessing.varinfo_to_var in
+
+  let params =
+    fundec.sformals
+    |> List.filter Types.is_struct_ptr_var
+    |> List.map Types.varinfo_to_var
+  in
   let locals =
-    params @ (fundec.slocals |> List.map Preprocessing.varinfo_to_var)
+    params
+    @ (fundec.slocals
+      |> List.filter Types.is_struct_ptr_var
+      |> List.map Types.varinfo_to_var)
   in
 
   let reachable, unreachable = Formula.split_by_reachability args formula in

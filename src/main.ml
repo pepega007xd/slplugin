@@ -18,7 +18,7 @@ let run_analysis () =
 
   Func_call.merge_all_results ();
 
-  Solver.dump_stats !Astral_query.solver;
+  Solver.dump_stats !Common.solver;
   Self.result "Astral took %.2f seconds" !Astral_query.solver_time
 
 let run_with_stacktrace_printing () =

@@ -18,7 +18,7 @@ let reduce_equiv_classes (formula : Formula.t) : Formula.t =
       | _, program_var :: _, _ -> program_var
       (* if not possible, pick any fresh variable *)
       | _, _, fresh_var :: _ -> fresh_var
-      | _ -> fail "unreachable (equivalence class cannot be empty)"
+      | _ -> assert false
     in
 
     List.fold_left

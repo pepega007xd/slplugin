@@ -1,9 +1,6 @@
 open Astral
 open Common
 
-(** Astral solver instance *)
-let solver = ref (Solver.init ())
-
 (** time spent in Astral *)
 let solver_time = ref 0.0
 

@@ -1,31 +1,22 @@
 open Astral
 open Common
+open Constants
 
 (** transfer function for [var = var;] *)
 let assign (lhs : Formula.var) (rhs : Formula.var) (formula : Formula.t) :
     Formula.t =
-  (* assignment into "_const" is used to check if rhs is allocated *)
-  if SL.Variable.get_name lhs = Preprocessing.const_var_name then (
-    Formula.assert_allocated rhs formula;
-    formula)
-  else
-    let rhs =
-      if SL.Variable.get_name rhs = Preprocessing.null_var_name then Formula.nil
-      else rhs
-    in
-    formula |> Formula.substitute_by_fresh lhs |> Formula.add_eq lhs rhs
+  formula |> Formula.substitute_by_fresh lhs |> Formula.add_eq lhs rhs
 
 (** transfer function for [var = var->field;] *)
 let assign_rhs_field (lhs : Formula.var) (rhs : Formula.var)
-    (rhs_field : Preprocessing.field_type) (formula : Formula.t) : Formula.t =
-  Formula.assert_allocated rhs formula;
+    (rhs_field : Types.field_type) (formula : Formula.t) : Formula.t =
   let rhs_var =
     Formula.get_spatial_target rhs rhs_field formula |> Option.get
   in
   formula |> Formula.substitute_by_fresh lhs |> Formula.add_eq lhs rhs_var
 
 (** transfer function for [var->field = var;] *)
-let assign_lhs_field (lhs : Formula.var) (lhs_field : Preprocessing.field_type)
+let assign_lhs_field (lhs : Formula.var) (lhs_field : Types.field_type)
     (rhs : Formula.var) (formula : Formula.t) : Formula.t =
   Formula.change_pto_target lhs lhs_field rhs formula
 
@@ -49,9 +40,9 @@ let call (lhs_opt : Formula.var option) (func : Cil_types.varinfo)
                 Formula.PointsTo (lhs, DLS_t (fresh (), fresh ()))
             | _ when sort = SL_builtins.loc_nls ->
                 Formula.PointsTo (lhs, NLS_t (fresh (), fresh ()))
-            | _ -> fail "unreachable transfer.ml:52" ))
+            | _ -> assert false ))
       | None ->
-          let lhs = SL.Variable.mk_fresh "leak" SL_builtins.loc_ls in
+          let lhs = SL.Variable.mk_fresh "leak" Sort.loc_nil in
           (lhs, Formula.PointsTo (lhs, LS_t (Common.mk_fresh_var_from lhs)))
     in
     [

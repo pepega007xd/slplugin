@@ -106,9 +106,9 @@ let to_astral (f : t) : SL.t =
     | PointsTo (src, NLS_t (top, next)) ->
         SL_builtins.mk_pto_nls (v src) ~top:(v top) ~next:(v next)
     | PointsTo (src, Generic vars) ->
-        (* let map_var () = SL.Term.mk_heap_term (MemoryModel0.Field.mk) var in *)
-        (* TODO: translation *)
-        SL.mk_pto_tuple (v src) []
+        let vars = vars |> List.map snd |> List.map v in
+        let struct_def = Types.get_struct_def @@ SL.Variable.get_sort src in
+        SL.mk_pto_struct (v src) struct_def vars
     | LS ls -> (
         let first = v ls.first in
         let next = v ls.next in
@@ -319,7 +319,7 @@ let get_spatial_atom_from (src : var) (f : t) : atom =
   | None ->
       fail "Variable %a is not allocated in %a" SL.Variable.pp src pp_formula f
 
-let get_target_of_atom (field : Preprocessing.field_type) (atom : atom) : var =
+let get_target_of_atom (field : Types.field_type) (atom : atom) : var =
   match (atom, field) with
   | PointsTo (_, LS_t next), Next -> next
   | PointsTo (_, DLS_t (next, _)), Next -> next
@@ -340,14 +340,14 @@ let get_targets_of_atom : atom -> var list = function
   | LS ls -> [ ls.next ]
   | DLS dls -> [ dls.prev; dls.next ]
   | NLS nls -> [ nls.top; nls.next ]
-  | _ -> fail "unreachable formula.ml:272"
+  | _ -> assert false
 
 let is_spatial_target (target : var) (f : t) : bool =
   f |> get_spatial_atoms
   |> List.exists (fun atom ->
          get_targets_of_atom atom |> List.exists (fun var -> is_eq target var f))
 
-let get_spatial_target (src : var) (field : Preprocessing.field_type) (f : t) :
+let get_spatial_target (src : var) (field : Types.field_type) (f : t) :
     var option =
   get_spatial_atom_from_opt src f |> Option.map (get_target_of_atom field)
 
@@ -356,13 +356,13 @@ let remove_spatial_from (src : var) (f : t) : t =
   | Some original_atom -> remove_atom original_atom f
   | None -> f
 
-let change_pto_target (src : var) (field : Preprocessing.field_type)
-    (new_target : var) (f : t) : t =
+let change_pto_target (src : var) (field : Types.field_type) (new_target : var)
+    (f : t) : t =
   let f = make_var_explicit_src src f in
   let old_struct =
     match get_spatial_atom_from src f with
     | PointsTo (_, old_struct) -> old_struct
-    | _ -> fail "unreachable formula.ml:259"
+    | _ -> assert false
   in
   let new_struct =
     match (field, old_struct) with
@@ -371,7 +371,7 @@ let change_pto_target (src : var) (field : Preprocessing.field_type)
     | Next, NLS_t (top, _) -> NLS_t (top, new_target)
     | Prev, DLS_t (next, _) -> DLS_t (next, new_target)
     | Top, NLS_t (_, next) -> NLS_t (new_target, next)
-    | _ -> fail "unreachable formula.ml:270"
+    | _ -> assert false
   in
   f |> remove_spatial_from src |> add_atom (PointsTo (src, new_struct))
 
@@ -380,7 +380,7 @@ let get_spatial_atom_min_length : atom -> int = function
   | DLS dls -> dls.min_len
   | NLS nls -> nls.min_len
   | PointsTo _ -> 1
-  | _ -> fail "unreachable formula.ml:279"
+  | _ -> assert false
 
 let assert_allocated (var : var) (f : t) : unit =
   ignore @@ get_spatial_atom_from var f
@@ -518,7 +518,7 @@ let rec materialize (var : var) (f : t) : t list =
       :: (f |> add_eq nls.first nls.top
          |> add_atom @@ mk_ls nls.first nls.next 0
          |> materialize var)
-  | _ -> fail "unreachable formula.ml:357"
+  | _ -> assert false
 
 (** Miscellaneous *)
 

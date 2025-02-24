@@ -1,6 +1,9 @@
 open Config
 open Astral
 
+(** Astral solver instance *)
+let solver = ref (Solver.init ())
+
 let fail message = Self.fatal ~current:true message
 let warning message = Self.warning ~current:true message
 let debug message = Self.warning ~current:true message
@@ -20,3 +23,9 @@ let rec list_map_pairs (f : 'a -> 'a -> 'b) (list : 'a list) : 'b list =
   match list with
   | [] -> []
   | first :: rest -> List.map (f first) rest @ list_map_pairs f rest
+
+let unique_counter = ref 0
+
+let get_unique_name (name : string) : string =
+  unique_counter := !unique_counter + 1;
+  name ^ "_" ^ string_of_int !unique_counter
