@@ -28,19 +28,34 @@ let call (lhs_opt : Formula.var option) (func : Cil_types.varinfo)
       match lhs_opt with
       | Some lhs -> (
           let sort = SL.Variable.get_sort lhs in
-          let fresh () =
+          let fresh_from_lhs () =
             if init_vars_to_null then Formula.nil
             else Common.mk_fresh_var_from lhs
           in
           ( lhs,
             match () with
             | _ when sort = SL_builtins.loc_ls ->
-                Formula.PointsTo (lhs, LS_t (fresh ()))
+                Formula.PointsTo (lhs, LS_t (fresh_from_lhs ()))
             | _ when sort = SL_builtins.loc_dls ->
-                Formula.PointsTo (lhs, DLS_t (fresh (), fresh ()))
+                Formula.PointsTo
+                  (lhs, DLS_t (fresh_from_lhs (), fresh_from_lhs ()))
             | _ when sort = SL_builtins.loc_nls ->
-                Formula.PointsTo (lhs, NLS_t (fresh (), fresh ()))
-            | _ -> assert false ))
+                Formula.PointsTo
+                  (lhs, NLS_t (fresh_from_lhs (), fresh_from_lhs ()))
+            | _ ->
+                let fields =
+                  Types.get_struct_def sort |> MemoryModel.StructDef.get_fields
+                in
+                let names = List.map MemoryModel0.Field.show fields in
+                let vars =
+                  if init_vars_to_null then
+                    List.map (fun _ -> Formula.nil) fields
+                  else
+                    List.map MemoryModel0.Field.get_sort fields
+                    |> List.map
+                         (SL.Variable.mk_fresh (SL.Variable.get_name lhs))
+                in
+                Formula.PointsTo (lhs, Generic (List.combine names vars)) ))
       | None ->
           let lhs = SL.Variable.mk_fresh "leak" Sort.loc_nil in
           (lhs, Formula.PointsTo (lhs, LS_t (Common.mk_fresh_var_from lhs)))

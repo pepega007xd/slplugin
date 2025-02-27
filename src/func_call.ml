@@ -56,7 +56,7 @@ let get_result_state (func : Kernel_function.t) (formula : Formula.t) :
       result_state
 
 let func_call (args : Formula.var list) (func : varinfo) (formula : Formula.t)
-    (lhs_opt : Formula.var option) =
+    (lhs_opt : Formula.var option) : Formula.state =
   let func = Globals.Functions.get func in
   let fundec = Kernel_function.get_definition func in
   let return_stmt = Kernel_function.find_return func in
@@ -140,6 +140,13 @@ let func_call (args : Formula.var list) (func : varinfo) (formula : Formula.t)
     unreachable;
 
   List.map convert_back_result result_state
+
+let func_call (args : Formula.var list) (func : varinfo) (formula : Formula.t)
+    (lhs_opt : Formula.var option) : Formula.state =
+  try func_call args func formula lhs_opt
+  with Kernel_function.No_Definition ->
+    warning "skipping function %s (no definition)" func.vname;
+    [ formula ]
 
 let merge_all_results () =
   List.iter (Hashtbl.iter (Hashtbl.replace !results)) !previous_results

@@ -4,7 +4,7 @@ open Astral
 open Constants
 open Common
 
-type field_type = Next | Prev | Top | Other of fieldinfo | Data
+type field_type = Next | Prev | Top | Other of string | Data
 type struct_type = Sll | Dll | Nl | Struct
 
 let is_struct_ptr (typ : typ) : bool =
@@ -57,7 +57,7 @@ let get_field_type (field : fieldinfo) : field_type =
   (* NL *)
   | [ top ], [ _ ] when field.forder = top.forder -> Top
   | [ _ ], [ next ] when field.forder = next.forder -> Next
-  | _ -> if is_struct_ptr field.ftype then Other field else Data
+  | _ -> if is_struct_ptr field.ftype then Other field.fname else Data
 
 let struct_info : (compinfo, Sort.t * MemoryModel.StructDef.t) Hashtbl.t =
   Hashtbl.create 113
@@ -118,7 +118,7 @@ let process_types =
     inherit Visitor.frama_c_inplace
 
     method! vtype (typ : typ) =
-      match typ with
+      match unrollTypeDeep typ with
       | TComp (structure, _) ->
           ignore @@ get_type_info structure;
           SkipChildren

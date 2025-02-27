@@ -5,13 +5,12 @@ type var = SL.Variable.t
 type ls = { first : var; next : var; min_len : int }
 type dls = { first : var; last : var; prev : var; next : var; min_len : int }
 type nls = { first : var; top : var; next : var; min_len : int }
-type target = string * var
 
 type pto_target =
   | LS_t of var
   | DLS_t of var * var
   | NLS_t of var * var
-  | Generic of target list
+  | Generic of (string * var) list
 
 type atom =
   | Eq of var list
@@ -43,34 +42,32 @@ let mk_nls (first : var) (top : var) (next : var) (min_len : int) =
 (** Formatters *)
 
 let atom_to_string : atom -> 'a =
-  let var var =
+  let v var =
     if Config.Print_sort.get () then
       let sort = SL.Variable.get_sort var |> SL.Sort.show in
       SL.Variable.show var ^ ":" ^ sort
     else SL.Variable.show var
   in
   function
-  | Eq vars -> vars |> List.map var |> String.concat " = "
-  | Distinct (lhs, rhs) -> var lhs ^ " != " ^ var rhs
-  | PointsTo (src, LS_t next) -> var src ^ " -> " ^ var next
+  | Eq vars -> vars |> List.map v |> String.concat " = "
+  | Distinct (lhs, rhs) -> v lhs ^ " != " ^ v rhs
+  | PointsTo (src, LS_t next) -> v src ^ " -> " ^ v next
   | PointsTo (src, DLS_t (next, prev)) ->
-      Format.sprintf "%s -> n:%s,p:%s" (var src) (var next) (var prev)
+      Format.sprintf "%s -> n:%s,p:%s" (v src) (v next) (v prev)
   | PointsTo (src, NLS_t (top, next)) ->
-      Format.sprintf "%s -> t:%s,n:%s" (var src) (var top) (var next)
+      Format.sprintf "%s -> t:%s,n:%s" (v src) (v top) (v next)
   | PointsTo (src, Generic vars) ->
-      Format.sprintf "%s -> {%s}" (var src)
+      Format.sprintf "%s -> {%s}" (v src)
         (vars
-        |> List.map (fun (name, var) ->
-               Format.sprintf "%s:%s" name (SL.Variable.get_name var))
+        |> List.map (fun (name, var) -> Format.sprintf "%s:%s" name (v var))
         |> String.concat " ")
-  | LS ls ->
-      Format.sprintf "ls_%d+(%s,%s)" ls.min_len (var ls.first) (var ls.next)
+  | LS ls -> Format.sprintf "ls_%d+(%s,%s)" ls.min_len (v ls.first) (v ls.next)
   | DLS dls ->
-      Format.sprintf "dls_%d+(%s,%s,%s,%s)" dls.min_len (var dls.first)
-        (var dls.last) (var dls.prev) (var dls.next)
+      Format.sprintf "dls_%d+(%s,%s,%s,%s)" dls.min_len (v dls.first)
+        (v dls.last) (v dls.prev) (v dls.next)
   | NLS nls ->
-      Format.sprintf "nls_%d+(%s,%s,%s)" nls.min_len (var nls.first)
-        (var nls.top) (var nls.next)
+      Format.sprintf "nls_%d+(%s,%s,%s)" nls.min_len (v nls.first) (v nls.top)
+        (v nls.next)
 
 let pp_atom (fmt : Format.formatter) (atom : atom) =
   Format.fprintf fmt "%s" (atom_to_string atom)
@@ -326,6 +323,7 @@ let get_target_of_atom (field : Types.field_type) (atom : atom) : var =
   | PointsTo (_, DLS_t (_, prev)), Prev -> prev
   | PointsTo (_, NLS_t (top, _)), Top -> top
   | PointsTo (_, NLS_t (_, next)), Next -> next
+  | PointsTo (_, Generic vars), Other field -> List.assoc field vars
   | LS ls, Next -> ls.next
   | DLS dls, Next -> dls.next
   | DLS dls, Prev -> dls.prev
@@ -337,6 +335,7 @@ let get_targets_of_atom : atom -> var list = function
   | PointsTo (_, LS_t next) -> [ next ]
   | PointsTo (_, DLS_t (next, prev)) -> [ next; prev ]
   | PointsTo (_, NLS_t (top, next)) -> [ top; next ]
+  | PointsTo (_, Generic vars) -> List.map snd vars
   | LS ls -> [ ls.next ]
   | DLS dls -> [ dls.prev; dls.next ]
   | NLS nls -> [ nls.top; nls.next ]
@@ -371,6 +370,8 @@ let change_pto_target (src : var) (field : Types.field_type) (new_target : var)
     | Next, NLS_t (top, _) -> NLS_t (top, new_target)
     | Prev, DLS_t (next, _) -> DLS_t (next, new_target)
     | Top, NLS_t (_, next) -> NLS_t (new_target, next)
+    | Other field, Generic vars ->
+        Generic ((field, new_target) :: List.remove_assoc field vars)
     | _ -> assert false
   in
   f |> remove_spatial_from src |> add_atom (PointsTo (src, new_struct))

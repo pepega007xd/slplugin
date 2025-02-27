@@ -66,6 +66,6 @@ let split_conditions =
             | _ -> convert_condition func condition th el location
           in
           stmt.skind <- new_stmtkind;
-          SkipChildren
+          DoChildren
       | _ -> DoChildren
   end

@@ -5,9 +5,9 @@ module ForwardsAnalysis = Forwards (Analysis)
 
 let run_analysis () =
   Func_call.compute_function := ForwardsAnalysis.compute;
-  Preprocessing.preprocess ();
 
   Astral_query.init ();
+  Preprocessing.preprocess ();
 
   let main, _ = Globals.entry_point () in
   let first_stmt = Kernel_function.find_first_stmt main in

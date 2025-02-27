@@ -69,7 +69,8 @@ let remove_non_list_stmts =
       | Assign_lhs_field (_, _, rhs) when is_list_type rhs -> SkipChildren
       | Assign_lhs_field (lhs, _, _) when is_list_type lhs ->
           ChangeTo [ assert_allocated lhs ]
-      | _ -> SkipChildren
+      | Instruction_type.Call (_, _, _) -> SkipChildren
+      | _ -> ChangeTo [ skip ]
   end
 
 let remove_useless_assignments =
@@ -125,11 +126,11 @@ let preprocess () =
   Visitor.visitFramacFileFunctions replace_constants file;
   visitCilFileFunctions remove_casts file;
   Visitor.visitFramacFileFunctions remove_local_init file;
+  Visitor.visitFramacFileFunctions remove_unused_call_args file;
   Visitor.visitFramacFileFunctions Stmt_split.split_complex_stmts file;
   Visitor.visitFramacFileFunctions Condition_split.split_conditions file;
-  Visitor.visitFramacFileFunctions remove_non_list_stmts file;
   Visitor.visitFramacFileFunctions remove_useless_assignments file;
-  Visitor.visitFramacFileFunctions remove_unused_call_args file;
+  Visitor.visitFramacFileFunctions remove_non_list_stmts file;
   Types.process_types file;
 
   (* this must run after adding statements *)
