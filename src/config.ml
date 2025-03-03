@@ -72,3 +72,13 @@ module Astral_debug = Self.False (struct
   let option_name = "-sl-astral-debug"
   let help = "Print info about queries to Astral"
 end)
+
+module Infallible_allocations = Self.False (struct
+  let option_name = "-sl-infallible-allocations"
+  let help = "Calls to allocation functions always succeed"
+end)
+
+module Benchmark_mode = Self.False (struct
+  let option_name = "-sl-benchmark-mode"
+  let help = "Enables features needed to run benchmarks"
+end)

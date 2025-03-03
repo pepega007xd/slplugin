@@ -11,7 +11,9 @@ let assign (lhs : Formula.var) (rhs : Formula.var) (formula : Formula.t) :
 let assign_rhs_field (lhs : Formula.var) (rhs : Formula.var)
     (rhs_field : Types.field_type) (formula : Formula.t) : Formula.t =
   let rhs_var =
-    Formula.get_spatial_target rhs rhs_field formula |> Option.get
+    Formula.get_spatial_target rhs rhs_field formula |> function
+    | Some rhs -> rhs
+    | None -> raise @@ Formula.Invalid_deref (rhs, formula)
   in
   formula |> Formula.substitute_by_fresh lhs |> Formula.add_eq lhs rhs_var
 
@@ -60,12 +62,17 @@ let call (lhs_opt : Formula.var option) (func : Cil_types.varinfo)
           let lhs = SL.Variable.mk_fresh "leak" Sort.loc_nil in
           (lhs, Formula.PointsTo (lhs, LS_t (Common.mk_fresh_var_from lhs)))
     in
-    [
-      formula |> Formula.substitute_by_fresh lhs |> Formula.add_atom pto;
-      formula
-      |> Formula.substitute_by_fresh lhs
-      |> Formula.add_eq lhs Formula.nil;
-    ]
+    let allocation =
+      formula |> Formula.substitute_by_fresh lhs |> Formula.add_atom pto
+    in
+    if Config.Infallible_allocations.get () then [ allocation ]
+    else
+      [
+        allocation;
+        formula
+        |> Formula.substitute_by_fresh lhs
+        |> Formula.add_eq lhs Formula.nil;
+      ]
   in
 
   match (func.vname, args) with
@@ -80,9 +87,14 @@ let call (lhs_opt : Formula.var option) (func : Cil_types.varinfo)
              |> Formula.remove_spatial_from var
              |> Formula.substitute_by_fresh var
              |> Formula.add_atom spatial_atom)
-  | "free", [ var ] ->
-      formula |> Formula.materialize var
-      |> List.map (Formula.remove_spatial_from var)
+  | "free", [ var ] -> (
+      try
+        formula |> Formula.materialize var
+        |> List.map (Formula.remove_spatial_from var)
+      with
+      | Formula.Invalid_deref (var, formula) ->
+          raise @@ Formula.Invalid_free (var, formula)
+      | e -> raise e)
   | _, args -> Func_call.func_call args func formula lhs_opt
 
 module Tests = struct

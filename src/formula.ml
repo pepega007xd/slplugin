@@ -22,6 +22,9 @@ type atom =
 
 type t = atom list
 
+exception Invalid_deref of var * t
+exception Invalid_free of var * t
+
 (* state stored by each CFG node in dataflow analysis *)
 type state = t list
 
@@ -313,8 +316,7 @@ let get_spatial_atom_from_first_opt (src : var) (f : t) : atom option =
 let get_spatial_atom_from (src : var) (f : t) : atom =
   get_spatial_atom_from_opt src f |> function
   | Some atom -> atom
-  | None ->
-      fail "Variable %a is not allocated in %a" SL.Variable.pp src pp_formula f
+  | None -> raise @@ Invalid_deref (src, f)
 
 let get_target_of_atom (field : Types.field_type) (atom : atom) : var =
   match (atom, field) with

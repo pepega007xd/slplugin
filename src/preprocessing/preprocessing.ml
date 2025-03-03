@@ -69,7 +69,9 @@ let remove_non_list_stmts =
       | Assign_lhs_field (_, _, rhs) when is_list_type rhs -> SkipChildren
       | Assign_lhs_field (lhs, _, _) when is_list_type lhs ->
           ChangeTo [ assert_allocated lhs ]
-      | Instruction_type.Call (_, _, _) -> SkipChildren
+      | Call (Some lhs, _, _) when is_list_type lhs -> SkipChildren
+      | Call (_, fn, args) ->
+          ChangeTo [ Call (None, evar fn, List.map evar args, loc) ]
       | _ -> ChangeTo [ skip ]
   end
 
