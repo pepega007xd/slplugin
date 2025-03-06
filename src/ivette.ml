@@ -6,7 +6,7 @@ let print_state (fmt : Format.formatter) (loc : Printer_tag.localizable) : unit
   let result =
     match loc with
     | Printer_tag.PStmtStart (_, stmt) ->
-        Hashtbl.find_opt !Func_call.results stmt
+        Hashtbl.find_opt !Func_call.function_context.results stmt
     | _ -> None
   in
   Option.iter (Formula.pp_state fmt) result

@@ -12,7 +12,7 @@ let run_analysis () =
   let main, _ = Globals.entry_point () in
   let first_stmt = Kernel_function.find_first_stmt main in
 
-  Hashtbl.add !Func_call.results first_stmt [ [] ];
+  Hashtbl.add !Func_call.function_context.results first_stmt [ [] ];
 
   ForwardsAnalysis.compute [ first_stmt ];
 

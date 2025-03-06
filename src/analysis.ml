@@ -135,8 +135,42 @@ let doGuard _ (condition : exp) (state : t) : t guardaction * t guardaction =
   let el = if List.is_empty el then GUnreachable else GUse el in
   (th, el)
 
+let get_inner_loops (block : block) =
+  let loops = ref [] in
+  let visitor =
+    object
+      inherit Cil.nopCilVisitor
+
+      method! vstmt s =
+        (match s.skind with Loop _ -> loops := s :: !loops | _ -> ());
+        DoChildren
+    end
+  in
+  ignore (Cil.visitCilBlock visitor block);
+  !loops
+
 (* we always want to continue with the analysis *)
-let doStmt (_ : stmt) (_ : t) : t stmtaction = SDefault
+let doStmt (stmt : stmt) (_ : t) : t stmtaction =
+  let loop_cycles = !Func_call.function_context.loop_cycles in
+  (* let get_inner_loops (block: block) *)
+  match (Config.Max_loop_cycles.is_set (), stmt.skind) with
+  | true, Loop (_, block, _, _, _) -> (
+      match Hashtbl.find_opt loop_cycles stmt with
+      | Some x when x > 0 ->
+          Hashtbl.add loop_cycles stmt (x - 1);
+          (* reset counters for all inner loops of the loop we are entering *)
+          get_inner_loops block
+          |> List.iter (fun key ->
+                 Common.debug "removing loop %a" Printer.pp_stmt key;
+                 Hashtbl.remove loop_cycles key);
+          SDefault
+      | Some _ ->
+          warning "Skipping loop cycle";
+          SDone
+      | None ->
+          Hashtbl.add loop_cycles stmt (Config.Max_loop_cycles.get ());
+          SDefault)
+  | _ -> SDefault
 
 (* simplify formulas and filter out unsatisfiable ones *)
 let doEdge (prev_stmt : stmt) (next_stmt : stmt) (state : t) : t =
@@ -195,18 +229,17 @@ let doEdge (prev_stmt : stmt) (next_stmt : stmt) (state : t) : t =
 module StmtStartData = struct
   type data = t
 
-  let results = Func_call.results
-  let clear () = Hashtbl.clear !results
+  let clear () = Hashtbl.clear !Func_call.function_context.results
 
   (* we cannot just assign `let mem = Hashtbl.mem !results`,
      that would evaluate `!results` immediately, but we need it to be evaluated each time
      (inside function calls, `results` refers to a different hashtable *)
-  let mem stmt = Hashtbl.mem !results stmt
-  let find stmt = Hashtbl.find !results stmt
-  let replace stmt = Hashtbl.replace !results stmt
-  let add stmt = Hashtbl.add !results stmt
-  let iter f = Hashtbl.iter f !results
-  let length () = Hashtbl.length !results
+  let mem stmt = Hashtbl.mem !Func_call.function_context.results stmt
+  let find stmt = Hashtbl.find !Func_call.function_context.results stmt
+  let replace stmt = Hashtbl.replace !Func_call.function_context.results stmt
+  let add stmt = Hashtbl.add !Func_call.function_context.results stmt
+  let iter f = Hashtbl.iter f !Func_call.function_context.results
+  let length () = Hashtbl.length !Func_call.function_context.results
 end
 
 module Tests = struct

@@ -82,3 +82,10 @@ module Benchmark_mode = Self.False (struct
   let option_name = "-sl-benchmark-mode"
   let help = "Enables features needed to run benchmarks"
 end)
+
+module Max_loop_cycles = Self.Int (struct
+  let option_name = "-sl-max-loop-cycles"
+  let help = "If set, the analysis will traverse loops only N times"
+  let arg_name = "N"
+  let default = -1
+end)
