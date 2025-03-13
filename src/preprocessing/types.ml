@@ -21,7 +21,7 @@ let rec get_self_and_sll_fields (structure : compinfo) :
   let self_pointers, other_pointers =
     structure |> get_struct_pointer_fields
     |> List.partition (fun field ->
-           match field.ftype with
+           match unrollTypeDeep field.ftype with
            | TPtr (TComp (target_struct, _), _) ->
                target_struct.ckey = structure.ckey
            | _ -> false)
@@ -29,7 +29,7 @@ let rec get_self_and_sll_fields (structure : compinfo) :
   let sll_pointers =
     List.filter
       (fun field ->
-        match field.ftype with
+        match unrollTypeDeep field.ftype with
         | TPtr (TComp (structure, _), _) -> get_struct_type structure = Sll
         | _ -> false)
       other_pointers

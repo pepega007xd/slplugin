@@ -19,13 +19,15 @@ let convert_condition (func : fundec) (condition : exp) (th : block)
     | Lval lval ->
         let var, _ = lval_to_var lval in
         new_if (BinOp (Ne, evar var, evar nullptr_var, Cil_const.intType))
-    | UnOp (BNot, { enode = Lval lval; _ }, _) ->
+    | UnOp (LNot, { enode = Lval lval; _ }, _) ->
         let var, _ = lval_to_var lval in
         new_if (BinOp (Eq, evar var, evar nullptr_var, Cil_const.intType))
     | BinOp (operator, { enode = Lval lhs; _ }, { enode = Lval rhs; _ }, _) ->
         let lhs, _ = lval_to_var lhs in
         let rhs, _ = lval_to_var rhs in
-        new_if (BinOp (operator, evar lhs, evar rhs, Cil_const.intType))
+        if operator = Eq || operator = Ne then
+          new_if (BinOp (operator, evar lhs, evar rhs, Cil_const.intType))
+        else nondeterministic
     | _ -> nondeterministic
   in
   block.bstmts <-
@@ -51,7 +53,7 @@ let split_conditions =
                   new_if
                     (BinOp (Ne, evar var, evar nullptr_var, Cil_const.intType))
                 else nondeterministic
-            | UnOp (BNot, { enode = Lval (Var var, NoOffset); _ }, _) ->
+            | UnOp (LNot, { enode = Lval (Var var, NoOffset); _ }, _) ->
                 if Types.is_struct_ptr var.vtype then
                   new_if
                     (BinOp (Eq, evar var, evar nullptr_var, Cil_const.intType))
@@ -59,9 +61,11 @@ let split_conditions =
             | BinOp
                 ( (Eq | Ne),
                   { enode = Lval (Var lhs, NoOffset); _ },
-                  { enode = Lval (Var _, NoOffset); _ },
+                  { enode = Lval (Var rhs, NoOffset); _ },
                   _ ) ->
-                if Types.is_struct_ptr lhs.vtype then stmt.skind
+                if
+                  Types.is_struct_ptr lhs.vtype || Types.is_struct_ptr rhs.vtype
+                then stmt.skind
                 else nondeterministic
             | _ -> convert_condition func condition th el location
           in

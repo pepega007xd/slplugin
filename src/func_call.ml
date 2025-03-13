@@ -152,10 +152,15 @@ let func_call (args : Formula.var list) (func : varinfo) (formula : Formula.t)
 
 let func_call (args : Formula.var list) (func : varinfo) (formula : Formula.t)
     (lhs_opt : Formula.var option) : Formula.state =
-  try func_call args func formula lhs_opt
-  with Kernel_function.No_Definition ->
-    warning "skipping function %s (no definition)" func.vname;
-    [ formula ]
+  if
+    Config.Benchmark_mode.get ()
+    && List.mem func.vname [ "reach_error"; "myexit" ]
+  then [ formula ]
+  else
+    try func_call args func formula lhs_opt
+    with Kernel_function.No_Definition | Kernel_function.No_Statement ->
+      warning "skipping function %s (no definition)" func.vname;
+      [ formula ]
 
 let merge_all_results () =
   List.iter

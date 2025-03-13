@@ -152,7 +152,6 @@ let get_inner_loops (block : block) =
 (* we always want to continue with the analysis *)
 let doStmt (stmt : stmt) (_ : t) : t stmtaction =
   let loop_cycles = !Func_call.function_context.loop_cycles in
-  (* let get_inner_loops (block: block) *)
   match (Config.Max_loop_cycles.is_set (), stmt.skind) with
   | true, Loop (_, block, _, _, _) -> (
       match Hashtbl.find_opt loop_cycles stmt with

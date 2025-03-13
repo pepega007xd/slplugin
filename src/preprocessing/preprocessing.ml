@@ -21,8 +21,7 @@ let replace_constants =
 
     method! vexpr (expr : exp) =
       match expr.enode with
-      | CastE (TPtr (_, _), { enode = Const _; _ }) ->
-          ChangeTo (evar nullptr_var)
+      | _ when is_nullptr expr -> ChangeTo (evar nullptr_var)
       | Const _ | SizeOf _ | SizeOfE _ | SizeOfStr _ ->
           ChangeTo (evar const_var)
       | _ -> DoChildren
@@ -57,16 +56,16 @@ let remove_non_list_stmts =
       let assert_allocated param =
         Ast_info.mkassign (Var const_var, NoOffset) (evar param) loc
       in
-      let is_list_type var =
-        var.vname = null_var_name || Types.is_struct_ptr var.vtype
-      in
+      let is_list_type var = Types.is_struct_ptr var.vtype in
       match Instruction_type.get_instr_type instr with
       | Assign_simple (lhs, _) when is_list_type lhs -> SkipChildren
       | Assign_simple (_, _) -> ChangeTo [ skip ]
       | Assign_rhs_field (lhs, _, _) when is_list_type lhs -> SkipChildren
       | Assign_rhs_field (_, rhs, _) when is_list_type rhs ->
           ChangeTo [ assert_allocated rhs ]
-      | Assign_lhs_field (_, _, rhs) when is_list_type rhs -> SkipChildren
+      | Assign_lhs_field (_, lhs_field, _)
+        when Types.is_struct_ptr lhs_field.ftype ->
+          SkipChildren
       | Assign_lhs_field (lhs, _, _) when is_list_type lhs ->
           ChangeTo [ assert_allocated lhs ]
       | Call (Some lhs, _, _) when is_list_type lhs -> SkipChildren
@@ -113,6 +112,32 @@ let remove_unused_call_args =
       | _ -> SkipChildren
   end
 
+let remove_not_operator =
+  object
+    inherit Visitor.frama_c_inplace
+
+    method! vstmt_aux (stmt : stmt) =
+      match stmt.skind with
+      | If (condition, th, el, location) ->
+          let new_if condition =
+            If (new_exp ~loc:location condition, th, el, location)
+          in
+          let new_stmtkind =
+            match condition.enode with
+            | UnOp (LNot, exp, _) -> (
+                match exp.enode with
+                | BinOp (Eq, lhs, rhs, typ) ->
+                    new_if (BinOp (Ne, lhs, rhs, typ))
+                | BinOp (Ne, lhs, rhs, typ) ->
+                    new_if (BinOp (Eq, lhs, rhs, typ))
+                | _ -> stmt.skind)
+            | _ -> stmt.skind
+          in
+          stmt.skind <- new_stmtkind;
+          DoChildren
+      | _ -> DoChildren
+  end
+
 let preprocess () =
   let file = Ast.get () in
 
@@ -130,6 +155,7 @@ let preprocess () =
   Visitor.visitFramacFileFunctions remove_local_init file;
   Visitor.visitFramacFileFunctions remove_unused_call_args file;
   Visitor.visitFramacFileFunctions Stmt_split.split_complex_stmts file;
+  Visitor.visitFramacFileFunctions remove_not_operator file;
   Visitor.visitFramacFileFunctions Condition_split.split_conditions file;
   Visitor.visitFramacFileFunctions remove_useless_assignments file;
   Visitor.visitFramacFileFunctions remove_non_list_stmts file;
