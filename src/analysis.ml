@@ -152,8 +152,8 @@ let get_inner_loops (block : block) =
 (* we always want to continue with the analysis *)
 let doStmt (stmt : stmt) (_ : t) : t stmtaction =
   let loop_cycles = !Func_call.function_context.loop_cycles in
-  match (Config.Max_loop_cycles.is_set (), stmt.skind) with
-  | true, Loop (_, block, _, _, _) -> (
+  match stmt.skind with
+  | Loop (_, block, _, _, _) when Config.Max_loop_cycles.is_set () -> (
       match Hashtbl.find_opt loop_cycles stmt with
       | Some x when x > 0 ->
           Hashtbl.add loop_cycles stmt (x - 1);
@@ -169,6 +169,12 @@ let doStmt (stmt : stmt) (_ : t) : t stmtaction =
       | None ->
           Hashtbl.add loop_cycles stmt (Config.Max_loop_cycles.get ());
           SDefault)
+  | Instr instr when Config.Benchmark_mode.get () -> (
+      match Instruction_type.get_instr_type instr with
+      | Instruction_type.Call (_, fn, _) ->
+          if List.mem fn.vname [ "reach_error"; "myexit" ] then SDone
+          else SDefault
+      | _ -> SDefault)
   | _ -> SDefault
 
 (* simplify formulas and filter out unsatisfiable ones *)
