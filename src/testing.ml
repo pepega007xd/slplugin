@@ -79,4 +79,33 @@ module Tests = struct
     let input = [ [ mk_dls z y u' v' 3 ]; [ mk_dls x y u v 2 ] ] in
     let expected = [ [ mk_dls x y u v 2 ]; [ mk_dls z y u' v' 3 ] ] in
     input |> List.sort compare_bounds = expected
+
+  let%test "sl struct creation" =
+    let sort = Sort.mk_loc "struct_name" in
+    let src_var = SL.Term.mk_var "src" sort in
+    let field_0_var = SL.Term.mk_var "dst_0" SL_builtins.loc_ls in
+    let field_1_var = SL.Term.mk_var "dst_1" SL_builtins.loc_dls in
+    let field_0 = MemoryModel0.Field.mk "field_0" SL_builtins.loc_ls in
+    let field_1 = MemoryModel0.Field.mk "field_1" SL_builtins.loc_dls in
+    let struct_def =
+      MemoryModel.StructDef.mk "struct_name" [ field_0; field_1 ]
+    in
+    let heap_sort = HeapSort.of_list [ (sort, struct_def) ] in
+
+    (* src |-> {field_0: dst_0, field_1: dst_1} *)
+    let pto =
+      SL.mk_pto_struct src_var struct_def [ field_0_var; field_1_var ]
+    in
+    let solver = Solver.init () |> Solver.set_heap_sort heap_sort in
+    Solver.check_sat solver pto
+
+  let%test "sl struct without fields" =
+    let sort = Sort.mk_loc "struct_name" in
+    let src_var = SL.Term.mk_var "src" sort in
+    let struct_def = MemoryModel.StructDef.mk "struct_name" [] in
+    let heap_sort = HeapSort.of_list [ (sort, struct_def) ] in
+    (* src |-> {field_0: dst_0, field_1: dst_1} *)
+    let pto = SL.mk_pto_struct src_var struct_def [] in
+    let solver = Solver.init () |> Solver.set_heap_sort heap_sort in
+    Solver.check_sat solver pto
 end

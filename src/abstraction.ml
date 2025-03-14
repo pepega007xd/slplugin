@@ -4,7 +4,7 @@ let is_unique_fresh (var : Formula.var) (formula : Formula.t) : bool =
   is_fresh_var var && Formula.count_occurences_excl_distinct var formula = 2
 
 let is_in_formula (src : Formula.var) (dst : Formula.var)
-    (field : Preprocessing.field_type) (formula : Formula.t) : bool =
+    (field : Types.field_type) (formula : Formula.t) : bool =
   Formula.get_spatial_atom_from_first_opt src formula
   |> Option.map (fun atom ->
          Formula.get_target_of_atom field atom |> fun atom_dst ->
@@ -27,7 +27,7 @@ let convert_to_ls (formula : Formula.t) : Formula.t =
     | Some second_ls
     (* conditions for abstraction *)
       when (* first_ls must still be in formula *)
-           is_in_formula first_ls.first first_ls.next Preprocessing.Next formula
+           is_in_formula first_ls.first first_ls.next Types.Next formula
            (* middle must be fresh variable, and occur only in these two predicates *)
            && is_unique_fresh first_ls.next formula
            (* src must be different from dst (checked using solver) *)
@@ -61,8 +61,7 @@ let convert_to_dls (formula : Formula.t) : Formula.t =
     | Some second_dls
     (* conditions for abstraction *)
       when (* first_dls must still be in formula *)
-           is_in_formula first_dls.first first_dls.next Preprocessing.Next
-             formula
+           is_in_formula first_dls.first first_dls.next Types.Next formula
            (* middle vars must be fresh, and occur only in these two predicates *)
            && (first_dls.first = first_dls.last
               || is_unique_fresh first_dls.last formula)
@@ -99,12 +98,8 @@ let convert_to_nls (formula : Formula.t) : Formula.t =
   (* returns modified formula and new [next] var if join succeeded *)
   let join_sublists (lhs : Formula.var) (rhs : Formula.var)
       (formula : Formula.t) : (Formula.t * Formula.var) option =
-    let lhs_target =
-      Formula.get_spatial_target lhs Preprocessing.Next formula
-    in
-    let rhs_target =
-      Formula.get_spatial_target rhs Preprocessing.Next formula
-    in
+    let lhs_target = Formula.get_spatial_target lhs Types.Next formula in
+    let rhs_target = Formula.get_spatial_target rhs Types.Next formula in
     match (lhs, rhs, lhs_target, rhs_target) with
     | lhs, rhs, _, _ when Formula.is_eq lhs rhs formula -> Some (formula, lhs)
     | lhs, rhs, _, Some rhs_t
@@ -135,7 +130,7 @@ let convert_to_nls (formula : Formula.t) : Formula.t =
     | Some second_nls
     (* conditions for abstraction *)
       when (* first_nls must still be in formula *)
-           is_in_formula first_nls.first first_nls.top Preprocessing.Top formula
+           is_in_formula first_nls.first first_nls.top Types.Top formula
            (* middle must be fresh variable, and occur only in these two predicates *)
            && is_unique_fresh first_nls.top formula
            (* src must be different from dst (checked using solver) *)

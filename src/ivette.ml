@@ -1,9 +1,12 @@
+open Cil_types
+open Cil
+
 let print_state (fmt : Format.formatter) (loc : Printer_tag.localizable) : unit
     =
   let result =
     match loc with
     | Printer_tag.PStmtStart (_, stmt) ->
-        Hashtbl.find_opt !Func_call.results stmt
+        Hashtbl.find_opt !Func_call.function_context.results stmt
     | _ -> None
   in
   Option.iter (Formula.pp_state fmt) result
@@ -15,17 +18,20 @@ let () =
 
 let print_type_heuristic (fmt : Format.formatter)
     (loc : Printer_tag.localizable) : unit =
-  let get_list_type typ =
-    match Preprocessing.get_list_type typ with
-    | Sll -> Some "Singly linked list"
-    | Dll -> Some "Doubly linked list"
-    | Nl -> Some "Nested list"
-    | Other -> Some "Not a list"
+  let get_struct_type (typ : typ) =
+    match unrollTypeDeep typ with
+    | TPtr (TComp (structure, _), _) | TComp (structure, _) -> (
+        match Types.get_struct_type structure with
+        | Sll -> "Singly linked list"
+        | Dll -> "Doubly linked list"
+        | Nl -> "Nested list"
+        | Types.Struct -> "Struct")
+    | _ -> Format.asprintf "Non-structure type: %a" Printer.pp_typ typ
   in
   let result =
     match loc with
-    | Printer_tag.PType typ -> get_list_type typ
-    | Printer_tag.PVDecl (_, _, var) -> get_list_type var.vtype
+    | Printer_tag.PType typ -> Some (get_struct_type typ)
+    | Printer_tag.PVDecl (_, _, var) -> Some (get_struct_type var.vtype)
     | _ -> None
   in
   Option.iter (Format.pp_print_string fmt) result
@@ -41,10 +47,11 @@ let print_type_heuristic_on_field (fmt : Format.formatter)
   let result =
     match loc with
     | Printer_tag.PLval (_, _, (_, Field (field, _))) -> (
-        match Preprocessing.get_field_type field with
+        match Types.get_field_type field with
         | Next -> Some "next"
         | Prev -> Some "prev"
         | Top -> Some "top"
+        | Other field -> Some ("other: " ^ field)
         | Data -> Some "data")
     | _ -> None
   in

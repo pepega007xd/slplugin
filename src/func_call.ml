@@ -4,17 +4,25 @@ open Common
 
 type summary_input = Kernel_function.t * Formula.t
 
-let summaries : (summary_input, Formula.state) Hashtbl.t ref =
-  ref @@ Hashtbl.create 113
+type function_context = {
+  results : (Cil_types.stmt, Formula.state) Hashtbl.t;
+  loop_cycles : (stmt, int) Hashtbl.t;
+}
+
+let summaries : (summary_input, Formula.state) Hashtbl.t = Hashtbl.create 113
 
 (** for running dataflow analysis recursively on other functions *)
 let compute_function : (Cil_types.stmt list -> unit) ref =
   ref (fun _ -> fail "called compute_function without initializing it")
 
-(** state of dataflow analysis is stored here *)
-let results : (Cil_types.stmt, Formula.state) Hashtbl.t ref =
-  ref (Hashtbl.create 113)
+let get_default_context () =
+  { results = Hashtbl.create 113; loop_cycles = Hashtbl.create 113 }
 
+(** All data specific for the analysis of a single function *)
+let function_context = ref @@ get_default_context ()
+
+(** stores past results from analysis of all visited functions, used to show all
+    generated states in Ivette at the end of analysis *)
 let previous_results : (Cil_types.stmt, Formula.state) Hashtbl.t list ref =
   ref []
 
@@ -31,16 +39,18 @@ let run_analysis (func : Kernel_function.t) (formula : Formula.t) :
   let first_stmt = Kernel_function.find_first_stmt func in
   let return_stmt = Kernel_function.find_return func in
   (* backup current state of analysis into a variable *)
-  let current_results = !results in
-  results := Hashtbl.create 113;
+  let current_context = !function_context in
 
-  Hashtbl.add !results first_stmt [ formula ];
+  function_context := get_default_context ();
+  Hashtbl.add !function_context.results first_stmt [ formula ];
   !compute_function [ first_stmt ];
-  let result_state = Hashtbl.find !results return_stmt in
+  let result_state = Hashtbl.find !function_context.results return_stmt in
 
-  previous_results := !results :: !previous_results;
+  (* save generated states to display them later *)
+  previous_results := !function_context.results :: !previous_results;
+
   (* restore current state of analysis *)
-  results := current_results;
+  function_context := current_context;
 
   result_state
 
@@ -48,21 +58,28 @@ let get_result_state (func : Kernel_function.t) (formula : Formula.t) :
     Formula.state =
   (* TODO: maybe canonicalize formula before creating a summary? *)
   let summary_input = Formula.standardize_fresh_var_names formula in
-  Hashtbl.find_opt !summaries (func, summary_input) |> function
+  Hashtbl.find_opt summaries (func, summary_input) |> function
   | Some result -> result
   | None ->
       let result_state = run_analysis func formula in
-      Hashtbl.add !summaries (func, summary_input) result_state;
+      Hashtbl.add summaries (func, summary_input) result_state;
       result_state
 
 let func_call (args : Formula.var list) (func : varinfo) (formula : Formula.t)
-    (lhs_opt : Formula.var option) =
+    (lhs_opt : Formula.var option) : Formula.state =
   let func = Globals.Functions.get func in
-  let fundec = Kernel_function.get_definition func in
   let return_stmt = Kernel_function.find_return func in
-  let params = fundec.sformals |> List.map Preprocessing.varinfo_to_var in
+
+  let params =
+    Kernel_function.get_formals func
+    |> List.filter Types.is_struct_ptr_var
+    |> List.map Types.varinfo_to_var
+  in
   let locals =
-    params @ (fundec.slocals |> List.map Preprocessing.varinfo_to_var)
+    params
+    @ (Kernel_function.get_locals func
+      |> List.filter Types.is_struct_ptr_var
+      |> List.map Types.varinfo_to_var)
   in
 
   let reachable, unreachable = Formula.split_by_reachability args formula in
@@ -133,5 +150,14 @@ let func_call (args : Formula.var list) (func : varinfo) (formula : Formula.t)
 
   List.map convert_back_result result_state
 
+let func_call (args : Formula.var list) (func : varinfo) (formula : Formula.t)
+    (lhs_opt : Formula.var option) : Formula.state =
+  try func_call args func formula lhs_opt
+  with Kernel_function.No_Definition | Kernel_function.No_Statement ->
+    warning "skipping function %s (no definition)" func.vname;
+    [ formula ]
+
 let merge_all_results () =
-  List.iter (Hashtbl.iter (Hashtbl.replace !results)) !previous_results
+  List.iter
+    (Hashtbl.iter (Hashtbl.replace !function_context.results))
+    !previous_results

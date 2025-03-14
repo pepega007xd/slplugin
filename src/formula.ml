@@ -5,7 +5,12 @@ type var = SL.Variable.t
 type ls = { first : var; next : var; min_len : int }
 type dls = { first : var; last : var; prev : var; next : var; min_len : int }
 type nls = { first : var; top : var; next : var; min_len : int }
-type pto_target = LS_t of var | DLS_t of var * var | NLS_t of var * var
+
+type pto_target =
+  | LS_t of var
+  | DLS_t of var * var
+  | NLS_t of var * var
+  | Generic of (string * var) list
 
 type atom =
   | Eq of var list
@@ -16,6 +21,9 @@ type atom =
   | NLS of nls
 
 type t = atom list
+
+exception Invalid_deref of var * t
+exception Invalid_free of var * t
 
 (* state stored by each CFG node in dataflow analysis *)
 type state = t list
@@ -37,28 +45,32 @@ let mk_nls (first : var) (top : var) (next : var) (min_len : int) =
 (** Formatters *)
 
 let atom_to_string : atom -> 'a =
-  let var var =
+  let v var =
     if Config.Print_sort.get () then
       let sort = SL.Variable.get_sort var |> SL.Sort.show in
       SL.Variable.show var ^ ":" ^ sort
     else SL.Variable.show var
   in
   function
-  | Eq vars -> vars |> List.map var |> String.concat " = "
-  | Distinct (lhs, rhs) -> var lhs ^ " != " ^ var rhs
-  | PointsTo (src, LS_t next) -> var src ^ " -> " ^ var next
+  | Eq vars -> vars |> List.map v |> String.concat " = "
+  | Distinct (lhs, rhs) -> v lhs ^ " != " ^ v rhs
+  | PointsTo (src, LS_t next) -> v src ^ " -> " ^ v next
   | PointsTo (src, DLS_t (next, prev)) ->
-      Format.sprintf "%s -> n:%s,p:%s" (var src) (var next) (var prev)
+      Format.sprintf "%s -> n:%s,p:%s" (v src) (v next) (v prev)
   | PointsTo (src, NLS_t (top, next)) ->
-      Format.sprintf "%s -> t:%s,n:%s" (var src) (var top) (var next)
-  | LS ls ->
-      Format.sprintf "ls_%d+(%s,%s)" ls.min_len (var ls.first) (var ls.next)
+      Format.sprintf "%s -> t:%s,n:%s" (v src) (v top) (v next)
+  | PointsTo (src, Generic vars) ->
+      Format.sprintf "%s -> {%s}" (v src)
+        (vars
+        |> List.map (fun (name, var) -> Format.sprintf "%s:%s" name (v var))
+        |> String.concat " ")
+  | LS ls -> Format.sprintf "ls_%d+(%s,%s)" ls.min_len (v ls.first) (v ls.next)
   | DLS dls ->
-      Format.sprintf "dls_%d+(%s,%s,%s,%s)" dls.min_len (var dls.first)
-        (var dls.last) (var dls.prev) (var dls.next)
+      Format.sprintf "dls_%d+(%s,%s,%s,%s)" dls.min_len (v dls.first)
+        (v dls.last) (v dls.prev) (v dls.next)
   | NLS nls ->
-      Format.sprintf "nls_%d+(%s,%s,%s)" nls.min_len (var nls.first)
-        (var nls.top) (var nls.next)
+      Format.sprintf "nls_%d+(%s,%s,%s)" nls.min_len (v nls.first) (v nls.top)
+        (v nls.next)
 
 let pp_atom (fmt : Format.formatter) (atom : atom) =
   Format.fprintf fmt "%s" (atom_to_string atom)
@@ -93,6 +105,10 @@ let to_astral (f : t) : SL.t =
         SL_builtins.mk_pto_dls (v src) ~next:(v next) ~prev:(v prev)
     | PointsTo (src, NLS_t (top, next)) ->
         SL_builtins.mk_pto_nls (v src) ~top:(v top) ~next:(v next)
+    | PointsTo (src, Generic vars) ->
+        let vars = vars |> List.map snd |> List.map v in
+        let struct_def = Types.get_struct_def @@ SL.Variable.get_sort src in
+        SL.mk_pto_struct (v src) struct_def vars
     | LS ls -> (
         let first = v ls.first in
         let next = v ls.next in
@@ -164,6 +180,7 @@ let get_vars (f : t) : var list =
       | PointsTo (src, LS_t next) -> [ src; next ]
       | PointsTo (src, DLS_t (next, prev)) -> [ src; next; prev ]
       | PointsTo (src, NLS_t (top, next)) -> [ src; next; top ]
+      | PointsTo (src, Generic vars) -> src :: List.map snd vars
       | LS ls -> [ ls.first; ls.next ]
       | DLS dls -> [ dls.first; dls.last; dls.prev; dls.next ]
       | NLS nls -> [ nls.first; nls.top; nls.next ])
@@ -182,6 +199,9 @@ let subsitute_in_atom (old_var : var) (new_var : var) : atom -> atom =
   | PointsTo (src, DLS_t (next, prev)) ->
       PointsTo (v src, DLS_t (v next, v prev))
   | PointsTo (src, NLS_t (top, next)) -> PointsTo (v src, NLS_t (v top, v next))
+  | PointsTo (src, Generic vars) ->
+      PointsTo
+        (v src, Generic (vars |> List.map (fun (name, var) -> (name, v var))))
   | LS ls -> LS { first = v ls.first; next = v ls.next; min_len = ls.min_len }
   | DLS dls ->
       DLS
@@ -296,16 +316,16 @@ let get_spatial_atom_from_first_opt (src : var) (f : t) : atom option =
 let get_spatial_atom_from (src : var) (f : t) : atom =
   get_spatial_atom_from_opt src f |> function
   | Some atom -> atom
-  | None ->
-      fail "Variable %a is not allocated in %a" SL.Variable.pp src pp_formula f
+  | None -> raise @@ Invalid_deref (src, f)
 
-let get_target_of_atom (field : Preprocessing.field_type) (atom : atom) : var =
+let get_target_of_atom (field : Types.field_type) (atom : atom) : var =
   match (atom, field) with
   | PointsTo (_, LS_t next), Next -> next
   | PointsTo (_, DLS_t (next, _)), Next -> next
   | PointsTo (_, DLS_t (_, prev)), Prev -> prev
   | PointsTo (_, NLS_t (top, _)), Top -> top
   | PointsTo (_, NLS_t (_, next)), Next -> next
+  | PointsTo (_, Generic vars), Other field -> List.assoc field vars
   | LS ls, Next -> ls.next
   | DLS dls, Next -> dls.next
   | DLS dls, Prev -> dls.prev
@@ -317,17 +337,18 @@ let get_targets_of_atom : atom -> var list = function
   | PointsTo (_, LS_t next) -> [ next ]
   | PointsTo (_, DLS_t (next, prev)) -> [ next; prev ]
   | PointsTo (_, NLS_t (top, next)) -> [ top; next ]
+  | PointsTo (_, Generic vars) -> List.map snd vars
   | LS ls -> [ ls.next ]
   | DLS dls -> [ dls.prev; dls.next ]
   | NLS nls -> [ nls.top; nls.next ]
-  | _ -> fail "unreachable formula.ml:272"
+  | _ -> assert false
 
 let is_spatial_target (target : var) (f : t) : bool =
   f |> get_spatial_atoms
   |> List.exists (fun atom ->
          get_targets_of_atom atom |> List.exists (fun var -> is_eq target var f))
 
-let get_spatial_target (src : var) (field : Preprocessing.field_type) (f : t) :
+let get_spatial_target (src : var) (field : Types.field_type) (f : t) :
     var option =
   get_spatial_atom_from_opt src f |> Option.map (get_target_of_atom field)
 
@@ -336,13 +357,13 @@ let remove_spatial_from (src : var) (f : t) : t =
   | Some original_atom -> remove_atom original_atom f
   | None -> f
 
-let change_pto_target (src : var) (field : Preprocessing.field_type)
-    (new_target : var) (f : t) : t =
+let change_pto_target (src : var) (field : Types.field_type) (new_target : var)
+    (f : t) : t =
   let f = make_var_explicit_src src f in
   let old_struct =
     match get_spatial_atom_from src f with
     | PointsTo (_, old_struct) -> old_struct
-    | _ -> fail "unreachable formula.ml:259"
+    | _ -> assert false
   in
   let new_struct =
     match (field, old_struct) with
@@ -351,7 +372,9 @@ let change_pto_target (src : var) (field : Preprocessing.field_type)
     | Next, NLS_t (top, _) -> NLS_t (top, new_target)
     | Prev, DLS_t (next, _) -> DLS_t (next, new_target)
     | Top, NLS_t (_, next) -> NLS_t (new_target, next)
-    | _ -> fail "unreachable formula.ml:270"
+    | Other field, Generic vars ->
+        Generic ((field, new_target) :: List.remove_assoc field vars)
+    | _ -> assert false
   in
   f |> remove_spatial_from src |> add_atom (PointsTo (src, new_struct))
 
@@ -360,7 +383,7 @@ let get_spatial_atom_min_length : atom -> int = function
   | DLS dls -> dls.min_len
   | NLS nls -> nls.min_len
   | PointsTo _ -> 1
-  | _ -> fail "unreachable formula.ml:279"
+  | _ -> assert false
 
 let assert_allocated (var : var) (f : t) : unit =
   ignore @@ get_spatial_atom_from var f
@@ -498,7 +521,7 @@ let rec materialize (var : var) (f : t) : t list =
       :: (f |> add_eq nls.first nls.top
          |> add_atom @@ mk_ls nls.first nls.next 0
          |> materialize var)
-  | _ -> fail "unreachable formula.ml:357"
+  | _ -> assert false
 
 (** Miscellaneous *)
 

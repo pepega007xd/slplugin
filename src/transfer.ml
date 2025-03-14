@@ -1,31 +1,24 @@
 open Astral
 open Common
+open Constants
 
 (** transfer function for [var = var;] *)
 let assign (lhs : Formula.var) (rhs : Formula.var) (formula : Formula.t) :
     Formula.t =
-  (* assignment into "_const" is used to check if rhs is allocated *)
-  if SL.Variable.get_name lhs = Preprocessing.const_var_name then (
-    Formula.assert_allocated rhs formula;
-    formula)
-  else
-    let rhs =
-      if SL.Variable.get_name rhs = Preprocessing.null_var_name then Formula.nil
-      else rhs
-    in
-    formula |> Formula.substitute_by_fresh lhs |> Formula.add_eq lhs rhs
+  formula |> Formula.substitute_by_fresh lhs |> Formula.add_eq lhs rhs
 
 (** transfer function for [var = var->field;] *)
 let assign_rhs_field (lhs : Formula.var) (rhs : Formula.var)
-    (rhs_field : Preprocessing.field_type) (formula : Formula.t) : Formula.t =
-  Formula.assert_allocated rhs formula;
+    (rhs_field : Types.field_type) (formula : Formula.t) : Formula.t =
   let rhs_var =
-    Formula.get_spatial_target rhs rhs_field formula |> Option.get
+    Formula.get_spatial_target rhs rhs_field formula |> function
+    | Some rhs -> rhs
+    | None -> raise @@ Formula.Invalid_deref (rhs, formula)
   in
   formula |> Formula.substitute_by_fresh lhs |> Formula.add_eq lhs rhs_var
 
 (** transfer function for [var->field = var;] *)
-let assign_lhs_field (lhs : Formula.var) (lhs_field : Preprocessing.field_type)
+let assign_lhs_field (lhs : Formula.var) (lhs_field : Types.field_type)
     (rhs : Formula.var) (formula : Formula.t) : Formula.t =
   Formula.change_pto_target lhs lhs_field rhs formula
 
@@ -37,29 +30,49 @@ let call (lhs_opt : Formula.var option) (func : Cil_types.varinfo)
       match lhs_opt with
       | Some lhs -> (
           let sort = SL.Variable.get_sort lhs in
-          let fresh () =
+          let fresh_from_lhs () =
             if init_vars_to_null then Formula.nil
             else Common.mk_fresh_var_from lhs
           in
           ( lhs,
             match () with
             | _ when sort = SL_builtins.loc_ls ->
-                Formula.PointsTo (lhs, LS_t (fresh ()))
+                Formula.PointsTo (lhs, LS_t (fresh_from_lhs ()))
             | _ when sort = SL_builtins.loc_dls ->
-                Formula.PointsTo (lhs, DLS_t (fresh (), fresh ()))
+                Formula.PointsTo
+                  (lhs, DLS_t (fresh_from_lhs (), fresh_from_lhs ()))
             | _ when sort = SL_builtins.loc_nls ->
-                Formula.PointsTo (lhs, NLS_t (fresh (), fresh ()))
-            | _ -> fail "unreachable transfer.ml:52" ))
+                Formula.PointsTo
+                  (lhs, NLS_t (fresh_from_lhs (), fresh_from_lhs ()))
+            | _ ->
+                let fields =
+                  Types.get_struct_def sort |> MemoryModel.StructDef.get_fields
+                in
+                let names = List.map MemoryModel0.Field.show fields in
+                let vars =
+                  if init_vars_to_null then
+                    List.map (fun _ -> Formula.nil) fields
+                  else
+                    List.map MemoryModel0.Field.get_sort fields
+                    |> List.map
+                         (SL.Variable.mk_fresh (SL.Variable.get_name lhs))
+                in
+                Formula.PointsTo (lhs, Generic (List.combine names vars)) ))
       | None ->
-          let lhs = SL.Variable.mk_fresh "leak" SL_builtins.loc_ls in
+          let lhs = SL.Variable.mk_fresh "leak" Sort.loc_nil in
           (lhs, Formula.PointsTo (lhs, LS_t (Common.mk_fresh_var_from lhs)))
     in
-    [
-      formula |> Formula.substitute_by_fresh lhs |> Formula.add_atom pto;
-      formula
-      |> Formula.substitute_by_fresh lhs
-      |> Formula.add_eq lhs Formula.nil;
-    ]
+    let allocation =
+      formula |> Formula.substitute_by_fresh lhs |> Formula.add_atom pto
+    in
+    if Config.Infallible_allocations.get () then [ allocation ]
+    else
+      [
+        allocation;
+        formula
+        |> Formula.substitute_by_fresh lhs
+        |> Formula.add_eq lhs Formula.nil;
+      ]
   in
 
   match (func.vname, args) with
@@ -74,9 +87,14 @@ let call (lhs_opt : Formula.var option) (func : Cil_types.varinfo)
              |> Formula.remove_spatial_from var
              |> Formula.substitute_by_fresh var
              |> Formula.add_atom spatial_atom)
-  | "free", [ var ] ->
-      formula |> Formula.materialize var
-      |> List.map (Formula.remove_spatial_from var)
+  | "free", [ var ] -> (
+      try
+        formula |> Formula.materialize var
+        |> List.map (Formula.remove_spatial_from var)
+      with
+      | Formula.Invalid_deref (var, formula) ->
+          raise @@ Formula.Invalid_free (var, formula)
+      | e -> raise e)
   | _, args -> Func_call.func_call args func formula lhs_opt
 
 module Tests = struct

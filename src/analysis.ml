@@ -10,7 +10,7 @@ type t = Formula.state
 
 let copy state = state
 let pretty fmt state = Formula.pp_state fmt state
-let var = Preprocessing.varinfo_to_var
+let var = Types.varinfo_to_var
 
 (** this is the transfer function for instructions, we take the instr and
     previous state, and create new state *)
@@ -20,28 +20,32 @@ let doInstr _ (instr : instr) (prev_state : t) : t =
   Async.yield ();
 
   let new_state =
-    match Preprocessing.get_instr_type instr with
-    | Preprocessing.Assign_simple (lhs, rhs) ->
+    match Instruction_type.get_instr_type instr with
+    (* assignment into "_const" is used to check if rhs is allocated *)
+    | Assign_simple (lhs, rhs) when lhs.vname = Constants.const_var_name ->
+        List.iter (Formula.assert_allocated (var rhs)) prev_state;
+        prev_state
+    | Assign_simple (lhs, rhs) ->
         prev_state |> List.map (Transfer.assign (var lhs) (var rhs))
-    | Preprocessing.Assign_rhs_field (lhs, rhs, rhs_field) ->
+    | Assign_rhs_field (lhs, rhs, rhs_field) ->
         prev_state
         |> List.concat_map (Formula.materialize (var rhs))
         |> List.map
              (Transfer.assign_rhs_field (var lhs) (var rhs)
-                (Preprocessing.get_field_type rhs_field))
-    | Preprocessing.Assign_lhs_field (lhs, lhs_field, rhs) ->
+                (Types.get_field_type rhs_field))
+    | Assign_lhs_field (lhs, lhs_field, rhs) ->
         prev_state
         |> List.concat_map (Formula.materialize (var lhs))
         |> List.map
              (Transfer.assign_lhs_field (var lhs)
-                (Preprocessing.get_field_type lhs_field)
+                (Types.get_field_type lhs_field)
                 (var rhs))
-    | Preprocessing.Call (lhs_opt, func, params) ->
+    | Call (lhs_opt, func, params) ->
         prev_state
         |> List.concat_map
              (Transfer.call (Option.map var lhs_opt) func (List.map var params))
-    | Preprocessing.ComplexInstr -> fail "unreachable analysis.ml:46"
-    | Preprocessing.Ignored -> prev_state
+    | ComplexInstr -> assert false
+    | Ignored -> prev_state
   in
   Self.debug ~current:true ~dkey:Printing.do_instr
     "previous state:\n%anew state:\n%a" Formula.pp_state prev_state
@@ -112,13 +116,11 @@ let doGuard _ (condition : exp) (state : t) : t guardaction * t guardaction =
           _ ) -> (
         let lhs = var lhs in
         let rhs = var rhs in
+        let eq = List.map (Formula.add_eq lhs rhs) state in
+        let ne = List.map (Formula.add_distinct lhs rhs) state in
         match operator with
-        | Eq ->
-            ( List.map (Formula.add_eq lhs rhs) state,
-              List.map (Formula.add_distinct lhs rhs) state )
-        | Ne ->
-            ( List.map (Formula.add_distinct lhs rhs) state,
-              List.map (Formula.add_eq lhs rhs) state )
+        | Eq -> (eq, ne)
+        | Ne -> (ne, eq)
         | _ -> (state, state))
     | _ -> (state, state)
   in
@@ -133,8 +135,47 @@ let doGuard _ (condition : exp) (state : t) : t guardaction * t guardaction =
   let el = if List.is_empty el then GUnreachable else GUse el in
   (th, el)
 
+let get_inner_loops (block : block) =
+  let loops = ref [] in
+  let visitor =
+    object
+      inherit Cil.nopCilVisitor
+
+      method! vstmt s =
+        (match s.skind with Loop _ -> loops := s :: !loops | _ -> ());
+        DoChildren
+    end
+  in
+  ignore (Cil.visitCilBlock visitor block);
+  !loops
+
 (* we always want to continue with the analysis *)
-let doStmt (_ : stmt) (_ : t) : t stmtaction = SDefault
+let doStmt (stmt : stmt) (_ : t) : t stmtaction =
+  let loop_cycles = !Func_call.function_context.loop_cycles in
+  match stmt.skind with
+  | Loop (_, block, _, _, _) when Config.Max_loop_cycles.is_set () -> (
+      match Hashtbl.find_opt loop_cycles stmt with
+      | Some x when x > 0 ->
+          Hashtbl.add loop_cycles stmt (x - 1);
+          (* reset counters for all inner loops of the loop we are entering *)
+          get_inner_loops block
+          |> List.iter (fun key ->
+                 Common.debug "removing loop %a" Printer.pp_stmt key;
+                 Hashtbl.remove loop_cycles key);
+          SDefault
+      | Some _ ->
+          warning "Skipping loop cycle";
+          SDone
+      | None ->
+          Hashtbl.add loop_cycles stmt (Config.Max_loop_cycles.get ());
+          SDefault)
+  | Instr instr when Config.Benchmark_mode.get () -> (
+      match Instruction_type.get_instr_type instr with
+      | Instruction_type.Call (_, fn, _) ->
+          if List.mem fn.vname [ "reach_error"; "myexit" ] then SDone
+          else SDefault
+      | _ -> SDefault)
+  | _ -> SDefault
 
 (* simplify formulas and filter out unsatisfiable ones *)
 let doEdge (prev_stmt : stmt) (next_stmt : stmt) (state : t) : t =
@@ -143,7 +184,8 @@ let doEdge (prev_stmt : stmt) (next_stmt : stmt) (state : t) : t =
   let end_of_scope_locals =
     Kernel_function.blocks_closed_by_edge prev_stmt next_stmt
     |> List.concat_map (fun block -> block.blocals)
-    |> List.map Preprocessing.varinfo_to_var
+    |> List.filter Types.is_struct_ptr_var
+    |> List.map Types.varinfo_to_var
   in
 
   let do_abstraction (state : t) : t =
@@ -192,18 +234,17 @@ let doEdge (prev_stmt : stmt) (next_stmt : stmt) (state : t) : t =
 module StmtStartData = struct
   type data = t
 
-  let results = Func_call.results
-  let clear () = Hashtbl.clear !results
+  let clear () = Hashtbl.clear !Func_call.function_context.results
 
   (* we cannot just assign `let mem = Hashtbl.mem !results`,
      that would evaluate `!results` immediately, but we need it to be evaluated each time
      (inside function calls, `results` refers to a different hashtable *)
-  let mem stmt = Hashtbl.mem !results stmt
-  let find stmt = Hashtbl.find !results stmt
-  let replace stmt = Hashtbl.replace !results stmt
-  let add stmt = Hashtbl.add !results stmt
-  let iter f = Hashtbl.iter f !results
-  let length () = Hashtbl.length !results
+  let mem stmt = Hashtbl.mem !Func_call.function_context.results stmt
+  let find stmt = Hashtbl.find !Func_call.function_context.results stmt
+  let replace stmt = Hashtbl.replace !Func_call.function_context.results stmt
+  let add stmt = Hashtbl.add !Func_call.function_context.results stmt
+  let iter f = Hashtbl.iter f !Func_call.function_context.results
+  let length () = Hashtbl.length !Func_call.function_context.results
 end
 
 module Tests = struct
