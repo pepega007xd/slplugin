@@ -5,9 +5,7 @@ open Constants
 let convert_condition (func : fundec) (condition : exp) (th : block)
     (el : block) (location : location) : stmtkind =
   let block = mkBlock [] in
-  let _, lval_to_var =
-    Block_builder.get_utility_functions func block location
-  in
+  let _, exp_to_var = Block_builder.get_block_builder func block location in
 
   let new_if condition =
     If (new_exp ~loc:location condition, th, el, location)
@@ -16,17 +14,17 @@ let convert_condition (func : fundec) (condition : exp) (th : block)
 
   let new_if_stmt =
     match condition.enode with
-    | Lval lval ->
-        let var, _ = lval_to_var lval in
-        new_if (BinOp (Ne, evar var, evar nullptr_var, Cil_const.intType))
-    | UnOp (LNot, { enode = Lval lval; _ }, _) ->
-        let var, _ = lval_to_var lval in
-        new_if (BinOp (Eq, evar var, evar nullptr_var, Cil_const.intType))
-    | BinOp (operator, { enode = Lval lhs; _ }, { enode = Lval rhs; _ }, _) ->
-        let lhs, _ = lval_to_var lhs in
-        let rhs, _ = lval_to_var rhs in
+    | Lval _ ->
+        let var, _ = exp_to_var condition in
+        new_if (BinOp (Ne, evar var, evar nullptr_var, var.vtype))
+    | UnOp (LNot, _, _) ->
+        let var, _ = exp_to_var condition in
+        new_if (BinOp (Eq, evar var, evar nullptr_var, var.vtype))
+    | BinOp (operator, lhs, rhs, _) ->
+        let lhs, _ = exp_to_var lhs in
+        let rhs, _ = exp_to_var rhs in
         if operator = Eq || operator = Ne then
-          new_if (BinOp (operator, evar lhs, evar rhs, Cil_const.intType))
+          new_if (BinOp (operator, evar lhs, evar rhs, lhs.vtype))
         else nondeterministic
     | _ -> nondeterministic
   in
@@ -49,23 +47,20 @@ let split_conditions =
           let new_stmtkind =
             match condition.enode with
             | Lval (Var var, NoOffset) ->
-                if Types.is_struct_ptr var.vtype then
-                  new_if
-                    (BinOp (Ne, evar var, evar nullptr_var, Cil_const.intType))
+                if Types.is_relevant_var var then
+                  new_if (BinOp (Ne, evar var, evar nullptr_var, var.vtype))
                 else nondeterministic
             | UnOp (LNot, { enode = Lval (Var var, NoOffset); _ }, _) ->
-                if Types.is_struct_ptr var.vtype then
-                  new_if
-                    (BinOp (Eq, evar var, evar nullptr_var, Cil_const.intType))
+                if Types.is_relevant_var var then
+                  new_if (BinOp (Eq, evar var, evar nullptr_var, var.vtype))
                 else nondeterministic
             | BinOp
                 ( (Eq | Ne),
                   { enode = Lval (Var lhs, NoOffset); _ },
                   { enode = Lval (Var rhs, NoOffset); _ },
                   _ ) ->
-                if
-                  Types.is_struct_ptr lhs.vtype || Types.is_struct_ptr rhs.vtype
-                then stmt.skind
+                if Types.is_relevant_var lhs || Types.is_relevant_var rhs then
+                  stmt.skind
                 else nondeterministic
             | _ -> convert_condition func condition th el location
           in

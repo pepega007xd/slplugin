@@ -19,13 +19,13 @@ let () =
 let print_type_heuristic (fmt : Format.formatter)
     (loc : Printer_tag.localizable) : unit =
   let get_struct_type (typ : typ) =
-    match unrollTypeDeep typ with
+    match Types.simplify_type typ with
     | TPtr (TComp (structure, _), _) | TComp (structure, _) -> (
         match Types.get_struct_type structure with
         | Sll -> "Singly linked list"
         | Dll -> "Doubly linked list"
         | Nl -> "Nested list"
-        | Types.Struct -> "Struct")
+        | Struct -> "Struct")
     | _ -> Format.asprintf "Non-structure type: %a" Printer.pp_typ typ
   in
   let result =

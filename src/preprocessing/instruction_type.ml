@@ -4,6 +4,9 @@ type instr_type =
   | Assign_simple of varinfo * varinfo
   | Assign_rhs_field of varinfo * varinfo * fieldinfo
   | Assign_lhs_field of varinfo * fieldinfo * varinfo
+  | Assign_deref_rhs of varinfo * varinfo
+  | Assign_deref_lhs of varinfo * varinfo
+  | Assign_ref of varinfo * varinfo
   | Call of varinfo option * varinfo * varinfo list
   | ComplexInstr
   | Ignored
@@ -38,6 +41,16 @@ let get_instr_type (instr : instr) : instr_type =
             Field (lhs_field, NoOffset) ),
           Lval (Var rhs, NoOffset) ) ->
           Assign_lhs_field (lhs, lhs_field, rhs)
+      (* *var = var; *)
+      | ( (Mem { enode = Lval (Var lhs, NoOffset); _ }, NoOffset),
+          Lval (Var rhs, NoOffset) ) ->
+          Assign_deref_lhs (lhs, rhs)
+      (* var = *var; *)
+      | ( (Var lhs, NoOffset),
+          Lval (Mem { enode = Lval (Var rhs, NoOffset); _ }, NoOffset) ) ->
+          Assign_deref_rhs (lhs, rhs)
+      (* var = &var; *)
+      | (Var lhs, NoOffset), AddrOf (Var rhs, NoOffset) -> Assign_ref (lhs, rhs)
       | _ -> ComplexInstr)
   | Call (lval_opt, func, params, _) -> (
       match (lval_opt, func.enode, get_func_params params) with

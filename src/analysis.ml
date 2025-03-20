@@ -40,6 +40,22 @@ let doInstr _ (instr : instr) (prev_state : t) : t =
              (Transfer.assign_lhs_field (var lhs)
                 (Types.get_field_type lhs_field)
                 (var rhs))
+    | Assign_deref_rhs (lhs, rhs) ->
+        List.map
+          (Transfer.assign_rhs_field (var lhs) (var rhs)
+             (Other Constants.ptr_field_name))
+          prev_state
+    | Assign_deref_lhs (lhs, rhs) ->
+        List.map
+          (Transfer.assign_lhs_field (var lhs) (Other Constants.ptr_field_name)
+             (var rhs))
+          prev_state
+    | Assign_ref (lhs, rhs) ->
+        List.map
+          (Formula.add_atom
+             (Formula.PointsTo
+                (var lhs, Generic [ (Constants.ptr_field_name, var rhs) ])))
+          prev_state
     | Call (lhs_opt, func, params) ->
         prev_state
         |> List.concat_map
@@ -184,8 +200,14 @@ let doEdge (prev_stmt : stmt) (next_stmt : stmt) (state : t) : t =
   let end_of_scope_locals =
     Kernel_function.blocks_closed_by_edge prev_stmt next_stmt
     |> List.concat_map (fun block -> block.blocals)
-    |> List.filter Types.is_struct_ptr_var
+    |> List.filter Types.is_relevant_var
     |> List.map Types.varinfo_to_var
+  in
+
+  let end_of_scope_stack_vars =
+    List.filter
+      (fun var -> List.mem var !Preprocessing.stack_allocated_vars)
+      end_of_scope_locals
   in
 
   let do_abstraction (state : t) : t =
@@ -210,6 +232,7 @@ let doEdge (prev_stmt : stmt) (next_stmt : stmt) (state : t) : t =
   let modified =
     state
     |> List.filter Astral_query.check_sat
+    |> List.map (remove_ptos_from_vars end_of_scope_stack_vars)
     |> List.map (convert_vars_to_fresh end_of_scope_locals)
     |> List.map remove_leaks
     |> List.map reduce_equiv_classes

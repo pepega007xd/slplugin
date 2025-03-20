@@ -21,8 +21,13 @@ let replace_constants =
 
     method! vexpr (expr : exp) =
       match expr.enode with
-      | _ when is_nullptr expr -> ChangeTo (evar nullptr_var)
+      | CastE (TPtr (_, _), exp) when is_nullptr exp ->
+          ChangeTo (evar nullptr_var)
       | Const _ | SizeOf _ | SizeOfE _ | SizeOfStr _ ->
+          ChangeTo (evar const_var)
+      | BinOp ((Eq | Ne), _, _, _) | UnOp (LNot, _, _) -> DoChildren
+      | (BinOp (_, _, _, typ) | UnOp (_, _, typ))
+        when not @@ Types.is_relevant_type typ ->
           ChangeTo (evar const_var)
       | _ -> DoChildren
   end
@@ -52,26 +57,32 @@ let remove_non_list_stmts =
 
     method! vinst (instr : instr) =
       let loc = Cil_datatype.Instr.loc instr in
-      let skip = Skip loc in
-      let assert_allocated param =
-        Ast_info.mkassign (Var const_var, NoOffset) (evar param) loc
+      let keep = SkipChildren in
+      let assert_allocated var =
+        ChangeTo [ Ast_info.mkassign (Var const_var, NoOffset) (evar var) loc ]
       in
-      let is_list_type var = Types.is_struct_ptr var.vtype in
+      let is_relevant var =
+        Types.is_relevant_var var || var.vname = Constants.null_var_name
+      in
       match Instruction_type.get_instr_type instr with
-      | Assign_simple (lhs, _) when is_list_type lhs -> SkipChildren
-      | Assign_simple (_, _) -> ChangeTo [ skip ]
-      | Assign_rhs_field (lhs, _, _) when is_list_type lhs -> SkipChildren
-      | Assign_rhs_field (_, rhs, _) when is_list_type rhs ->
-          ChangeTo [ assert_allocated rhs ]
-      | Assign_lhs_field (_, lhs_field, _)
-        when Types.is_struct_ptr lhs_field.ftype ->
-          SkipChildren
-      | Assign_lhs_field (lhs, _, _) when is_list_type lhs ->
-          ChangeTo [ assert_allocated lhs ]
-      | Call (Some lhs, _, _) when is_list_type lhs -> SkipChildren
+      | Assign_simple (lhs, _) when is_relevant lhs -> keep
+      | (Assign_rhs_field (lhs, _, _) | Assign_deref_rhs (lhs, _))
+        when is_relevant lhs ->
+          keep
+      | (Assign_rhs_field (_, rhs, _) | Assign_deref_rhs (_, rhs))
+        when is_relevant rhs ->
+          assert_allocated rhs
+      | (Assign_lhs_field (_, _, rhs) | Assign_deref_lhs (_, rhs))
+        when is_relevant rhs ->
+          keep
+      | (Assign_lhs_field (lhs, _, _) | Assign_deref_lhs (lhs, _))
+        when is_relevant lhs ->
+          assert_allocated lhs
+      | Assign_ref (_, rhs) when is_relevant rhs -> keep
+      | Call (Some lhs, _, _) when is_relevant lhs -> keep
       | Call (_, fn, args) ->
           ChangeTo [ Call (None, evar fn, List.map evar args, loc) ]
-      | _ -> ChangeTo [ skip ]
+      | _ -> ChangeTo [ Skip loc ]
   end
 
 let remove_useless_assignments =
@@ -106,7 +117,7 @@ let remove_unused_call_args =
       match instr with
       | Call (lval_opt, fn, args, location) ->
           let args =
-            List.filter (fun arg -> typeOf arg |> Types.is_struct_ptr) args
+            List.filter (fun arg -> typeOf arg |> Types.is_relevant_type) args
           in
           ChangeTo [ Call (lval_opt, fn, args, location) ]
       | _ -> SkipChildren
@@ -138,6 +149,21 @@ let remove_not_operator =
       | _ -> DoChildren
   end
 
+let stack_allocated_vars : SL.Variable.t list ref = ref []
+
+let collect_stack_allocated_vars =
+  object
+    inherit Visitor.frama_c_inplace
+
+    method! vinst (instr : instr) =
+      match Instruction_type.get_instr_type instr with
+      | Assign_ref (lhs, _) ->
+          stack_allocated_vars :=
+            Types.varinfo_to_var lhs :: !stack_allocated_vars;
+          SkipChildren
+      | _ -> SkipChildren
+  end
+
 let preprocess () =
   let file = Ast.get () in
 
@@ -160,6 +186,7 @@ let preprocess () =
   Visitor.visitFramacFileFunctions remove_useless_assignments file;
   Visitor.visitFramacFileFunctions remove_non_list_stmts file;
   Types.process_types file;
+  Visitor.visitFramacFileFunctions collect_stack_allocated_vars file;
 
   (* this must run after adding statements *)
   Ast.mark_as_changed ();

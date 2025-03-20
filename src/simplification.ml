@@ -122,6 +122,13 @@ let join_similar_formulas (state : Formula.state) : Formula.state =
     |> ( @ ) joined
   else state
 
+let remove_ptos_from_vars (vars : Formula.var list) (formula : Formula.t) =
+  List.fold_left
+    (fun formula var ->
+      let atom = Formula.get_spatial_atom_from var formula in
+      formula |> Formula.make_var_explicit_src var |> Formula.remove_atom atom)
+    formula vars
+
 module Tests = struct
   open Testing
   open Formula
