@@ -85,14 +85,16 @@ let remove_non_list_stmts =
       | _ -> ChangeTo [ Skip loc ]
   end
 
-let remove_useless_assignments =
+let remove_noop_assignments =
   object
     inherit Visitor.frama_c_inplace
 
     method! vinst (instr : instr) =
-      match Instruction_type.get_instr_type instr with
-      | Assign_simple (lhs, rhs) when lhs.vname = rhs.vname ->
-          ChangeTo [ Skip (Cil_datatype.Instr.loc instr) ]
+      match instr with
+      | Set (lhs, { enode = Lval rhs; _ }, location) ->
+          if Cil_datatype.LvalStructEq.equal lhs rhs then
+            ChangeTo [ Skip location ]
+          else SkipChildren
       | _ -> SkipChildren
   end
 
@@ -137,6 +139,7 @@ let remove_not_operator =
             match condition.enode with
             | UnOp (LNot, exp, _) -> (
                 match exp.enode with
+                | UnOp (LNot, { enode; _ }, _) -> new_if enode
                 | BinOp (Eq, lhs, rhs, typ) ->
                     new_if (BinOp (Ne, lhs, rhs, typ))
                 | BinOp (Ne, lhs, rhs, typ) ->
@@ -180,10 +183,11 @@ let preprocess () =
   visitCilFileFunctions remove_casts file;
   Visitor.visitFramacFileFunctions remove_local_init file;
   Visitor.visitFramacFileFunctions remove_unused_call_args file;
+  Visitor.visitFramacFileFunctions remove_noop_assignments file;
   Visitor.visitFramacFileFunctions Stmt_split.split_complex_stmts file;
   Visitor.visitFramacFileFunctions remove_not_operator file;
   Visitor.visitFramacFileFunctions Condition_split.split_conditions file;
-  Visitor.visitFramacFileFunctions remove_useless_assignments file;
+  Visitor.visitFramacFileFunctions remove_noop_assignments file;
   Visitor.visitFramacFileFunctions remove_non_list_stmts file;
   Types.process_types file;
   Visitor.visitFramacFileFunctions collect_stack_allocated_vars file;

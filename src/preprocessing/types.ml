@@ -104,7 +104,7 @@ let rec get_type_info (typ : typ) : Sort.t * MemoryModel.StructDef.t =
           let result = (sort, struct_def) in
           Hashtbl.add type_info typ result;
           result
-      | _ -> fail "invalid type")
+      | other -> fail "invalid type: %a" Printer.pp_typ other)
 
 let get_struct_def (sort : Sort.t) : MemoryModel.StructDef.t =
   Hashtbl.to_seq_values type_info
