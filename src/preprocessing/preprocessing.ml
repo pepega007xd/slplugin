@@ -139,6 +139,7 @@ let remove_not_operator =
             match condition.enode with
             | UnOp (LNot, exp, _) -> (
                 match exp.enode with
+                | UnOp (LNot, { enode; _ }, _) -> new_if enode
                 | BinOp (Eq, lhs, rhs, typ) ->
                     new_if (BinOp (Ne, lhs, rhs, typ))
                 | BinOp (Ne, lhs, rhs, typ) ->
