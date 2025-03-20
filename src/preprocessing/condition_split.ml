@@ -17,8 +17,8 @@ let convert_condition (func : fundec) (condition : exp) (th : block)
     | Lval _ ->
         let var, _ = exp_to_var condition in
         new_if (BinOp (Ne, evar var, evar nullptr_var, var.vtype))
-    | UnOp (LNot, _, _) ->
-        let var, _ = exp_to_var condition in
+    | UnOp (LNot, inner_exp, _) ->
+        let var, _ = exp_to_var inner_exp in
         new_if (BinOp (Eq, evar var, evar nullptr_var, var.vtype))
     | BinOp (operator, lhs, rhs, _) ->
         let lhs, _ = exp_to_var lhs in
