@@ -16,7 +16,7 @@ class Tool(benchexec.tools.template.BaseTool2):
         return "https://github.com/pepega007xd/slplugin"
 
     def cmdline(self, executable, options, task, rlimits):
-        args = "-sl -sl-benchmark-mode -sl-infallible-allocations -sl-astral-encoding Bitvectors -sl-backend-solver Bitwuzla -sl-edge-deduplication -sl-simple-join"
+        args = "-sl -sl-benchmark-mode -sl-no-catch-exceptions -sl-astral-encoding Bitvectors -sl-backend-solver Bitwuzla -sl-edge-deduplication -sl-simple-join"
         return [executable] + args.split() + options + list(task.input_files)
 
     def determine_result(self, run):

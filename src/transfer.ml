@@ -65,7 +65,7 @@ let call (lhs_opt : Formula.var option) (func : Cil_types.varinfo)
     let allocation =
       formula |> Formula.substitute_by_fresh lhs |> Formula.add_atom pto
     in
-    if Config.Infallible_allocations.get () then [ allocation ]
+    if Config.Benchmark_mode.get () then [ allocation ]
     else
       [
         allocation;

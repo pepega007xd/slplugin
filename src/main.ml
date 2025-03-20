@@ -31,10 +31,10 @@ let main () =
       Common.warning "Invalid_free: var '%a' in formula '%a'" SL.Variable.pp var
         Formula.pp_formula formula
   | e ->
-      if Config.Benchmark_mode.get () then raise e
-      else
+      if Config.Catch_exceptions.get () then (
         let backtrace = Printexc.get_backtrace () in
         Self.warning "EXCEPTION: %s" (Printexc.to_string e);
-        Self.warning "BACKTRACE: \n%s" backtrace
+        Self.warning "BACKTRACE: \n%s" backtrace)
+      else raise e
 
 let () = Boot.Main.extend (fun () -> if Enable_analysis.get () then main ())

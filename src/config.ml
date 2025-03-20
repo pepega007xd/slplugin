@@ -73,11 +73,6 @@ module Astral_debug = Self.False (struct
   let help = "Print info about queries to Astral"
 end)
 
-module Infallible_allocations = Self.False (struct
-  let option_name = "-sl-infallible-allocations"
-  let help = "Calls to allocation functions always succeed"
-end)
-
 module Benchmark_mode = Self.False (struct
   let option_name = "-sl-benchmark-mode"
   let help = "Enables features needed to run benchmarks"
@@ -88,4 +83,9 @@ module Max_loop_cycles = Self.Int (struct
   let help = "If set, the analysis will traverse loops only N times"
   let arg_name = "N"
   let default = -1
+end)
+
+module Catch_exceptions = Self.True (struct
+  let option_name = "-sl-catch-exceptions"
+  let help = "Catch exceptions in main function (disable for benchmarks)"
 end)

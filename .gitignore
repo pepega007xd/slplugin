@@ -1,9 +1,7 @@
 _build/
-cfa.dot
 astral_queries/
 astral_debug/
 .ivette
-test.c
 results/
 bench/build/
 bench/slplugin.egg-info
