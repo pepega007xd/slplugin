@@ -19,9 +19,9 @@ let replace_constants =
   object
     inherit Visitor.frama_c_inplace
 
-    method! vexpr (expr : exp) =
-      match expr.enode with
-      | CastE (TPtr (_, _), exp) when is_nullptr exp ->
+    method! vexpr (exp : exp) =
+      match exp.enode with
+      | CastE (typ, exp) when isPointerType typ && is_nullptr exp ->
           ChangeTo (evar nullptr_var)
       | Const _ | SizeOf _ | SizeOfE _ | SizeOfStr _ ->
           ChangeTo (evar const_var)
