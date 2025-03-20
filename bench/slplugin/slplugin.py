@@ -1,0 +1,35 @@
+import benchexec
+import benchexec.result as result
+
+
+class Tool(benchexec.tools.template.BaseTool2):
+    def executable(self, tool_locator):
+        return tool_locator.find_executable("frama-c")
+
+    def version(self, executable):
+        return "0.1"
+
+    def name(self):
+        return "slplugin"
+
+    def project_url(self):
+        return "https://github.com/pepega007xd/slplugin"
+
+    def cmdline(self, executable, options, task, rlimits):
+        args = "-sl -sl-benchmark-mode -sl-infallible-allocations -sl-astral-encoding Bitvectors -sl-backend-solver Bitwuzla -sl-edge-deduplication -sl-simple-join"
+        return [executable] + args.split() + options + list(task.input_files)
+
+    def determine_result(self, run):
+        if run.exit_code.value != 0:
+            return result.RESULT_ERROR
+
+        if run.output.any_line_contains("Invalid_deref"):
+            return result.RESULT_FALSE_DEREF
+
+        if run.output.any_line_contains("Invalid_free"):
+            return result.RESULT_FALSE_FREE
+
+        if run.output.any_line_contains("leak of atom"):
+            return result.RESULT_FALSE_MEMTRACK
+
+        return result.RESULT_TRUE_PROP
