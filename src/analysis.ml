@@ -4,7 +4,7 @@ open Common
 open Dataflow2
 
 let name = "slplugin"
-let debug = true (* TODO: what does this do??? *)
+let debug = false
 
 type t = Formula.state
 
@@ -188,7 +188,7 @@ let doStmt (stmt : stmt) (_ : t) : t stmtaction =
   | Instr instr when Config.Benchmark_mode.get () -> (
       match Instruction_type.get_instr_type instr with
       | Instruction_type.Call (_, fn, _) ->
-          if List.mem fn.vname [ "reach_error"; "myexit" ] then SDone
+          if List.mem fn.vname [ "reach_error"; "myexit"; "fail" ] then SDone
           else SDefault
       | _ -> SDefault)
   | _ -> SDefault
@@ -239,6 +239,7 @@ let doEdge (prev_stmt : stmt) (next_stmt : stmt) (state : t) : t =
     |> do_abstraction
     |> List.map remove_distinct_only
     |> List.map remove_single_eq
+    |> List.map remove_empty_lists
     |> List.map (Formula.remove_spatial_from Formula.nil)
     (* deduplicate atoms syntactically *)
     |> List.map (List.sort_uniq compare)

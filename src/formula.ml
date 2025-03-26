@@ -559,7 +559,13 @@ let split_by_reachability (vars : var list) (f : t) : t * t =
       rest
   in
 
-  (reachable_equiv_classes @ reachable_spatials @ reachable_distincts, rest)
+  let reachable =
+    reachable_equiv_classes @ reachable_spatials @ reachable_distincts
+  in
+  let unreachable =
+    List.filter (fun atom -> not @@ List.mem atom reachable) rest
+  in
+  (reachable, unreachable)
 
 (** returns true when variable appears only once in the formula, [Distinct]
     atoms are ignored *)
@@ -583,12 +589,21 @@ let canonicalize (f : t) : t =
 let canonicalize_state (state : state) : state =
   state |> List.map canonicalize |> List.sort_uniq compare
 
-let sum_of_bounds (f : t) : int =
-  f
-  |> List.map (function
-       | LS { min_len; _ } | DLS { min_len; _ } | NLS { min_len; _ } -> min_len
-       | _ -> 0)
-  |> List.fold_left ( + ) 0
+let sum_of_bounds (add_ptos : bool) (f : t) : int =
+  let result =
+    f
+    |> List.map (function
+         | LS { min_len; _ } | DLS { min_len; _ } | NLS { min_len; _ } ->
+             min_len
+         | PointsTo _ when add_ptos -> 1
+         | _ -> 0)
+    |> List.fold_left ( + ) 0
+  in
+  if List.exists (function LS _ | DLS _ | NLS _ -> true | _ -> false) f then
+    result - 1
+  else result
 
 let compare_bounds (lhs : t) (rhs : t) : int =
-  sum_of_bounds lhs - sum_of_bounds rhs
+  let with_ptos = sum_of_bounds true lhs - sum_of_bounds true rhs in
+  let without_ptos = sum_of_bounds false lhs - sum_of_bounds false rhs in
+  if with_ptos = 0 then without_ptos else with_ptos

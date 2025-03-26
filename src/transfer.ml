@@ -15,7 +15,8 @@ let assign_rhs_field (lhs : Formula.var) (rhs : Formula.var)
     | Some rhs -> rhs
     | None -> raise @@ Formula.Invalid_deref (rhs, formula)
   in
-  formula |> Formula.substitute_by_fresh lhs |> Formula.add_eq lhs rhs_var
+  if lhs = rhs_var then formula
+  else formula |> Formula.substitute_by_fresh lhs |> Formula.add_eq lhs rhs_var
 
 (** transfer function for [var->field = var;] *)
 let assign_lhs_field (lhs : Formula.var) (lhs_field : Types.field_type)
@@ -87,10 +88,19 @@ let call (lhs_opt : Formula.var option) (func : Cil_types.varinfo)
              |> Formula.remove_spatial_from var
              |> Formula.substitute_by_fresh var
              |> Formula.add_atom spatial_atom)
-  | "free", [ var ] -> (
+  | "free", [ src ] -> (
       try
-        formula |> Formula.materialize var
-        |> List.map (Formula.remove_spatial_from var)
+        let target_vars =
+          Formula.get_spatial_atom_from src formula
+          |> Formula.get_targets_of_atom
+          |> List.filter (fun dst -> not @@ Formula.is_eq src dst formula)
+        in
+        formula |> Formula.materialize src
+        |> List.map (Formula.remove_spatial_from src)
+        |> List.map (fun formula ->
+               List.fold_left
+                 (fun formula dst -> Formula.Distinct (src, dst) :: formula)
+                 formula target_vars)
       with
       | Formula.Invalid_deref (var, formula) ->
           raise @@ Formula.Invalid_free (var, formula)
