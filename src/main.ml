@@ -19,7 +19,14 @@ let run_analysis () =
   Func_call.merge_all_results ();
 
   Solver.dump_stats !Common.solver;
-  Self.result "Astral took %.2f seconds" !Astral_query.solver_time
+  Self.result "Astral took %.2f seconds" !Astral_query.solver_time;
+
+  let return_stmt = Kernel_function.find_return main in
+
+  if
+    Hashtbl.find !Func_call.function_context.results return_stmt
+    |> List.concat |> Formula.get_spatial_atoms |> List.is_empty |> not
+  then Self.result "leak of atom after main function"
 
 let main () =
   Printexc.record_backtrace true;
