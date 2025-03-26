@@ -1,3 +1,5 @@
+ARGS := $(wordlist 2, $(words $(MAKECMDGOALS)), $(MAKECMDGOALS))
+
 svcomp:
 	pip install bench/
 	dune b && dune install
@@ -14,3 +16,10 @@ result:
 	table-generator results/*.xml.bz2
 	python3 -m http.server -b 127.0.0.1 8000 -d /home/tb/projects | \
 	firefox 'localhost:8000/slplugin/results'
+
+run:
+	dune b && dune install
+	ivette -sl -sl-msg-key '*' -sl-benchmark-mode -sl-astral-encoding Bitvectors -sl-backend-solver Bitwuzla -sl-edge-deduplication -sl-simple-join $(ARGS)
+
+%:
+	@:
