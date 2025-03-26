@@ -58,6 +58,7 @@ let remove_non_list_stmts =
     method! vinst (instr : instr) =
       let loc = Cil_datatype.Instr.loc instr in
       let keep = SkipChildren in
+      let skip = ChangeTo [ Skip loc ] in
       let assert_allocated var =
         ChangeTo [ Ast_info.mkassign (Var const_var, NoOffset) (evar var) loc ]
       in
@@ -80,9 +81,12 @@ let remove_non_list_stmts =
           assert_allocated lhs
       | Assign_ref (_, rhs) when is_relevant rhs -> keep
       | Call (Some lhs, _, _) when is_relevant lhs -> keep
+      (* skip de/allocation functions used with non-relevant types *)
+      | Call (_, fn, _) when List.mem fn.vname [ "malloc"; "calloc" ] -> skip
+      | Call (_, fn, []) when fn.vname = "free" -> skip
       | Call (_, fn, args) ->
           ChangeTo [ Call (None, evar fn, List.map evar args, loc) ]
-      | _ -> ChangeTo [ Skip loc ]
+      | _ -> skip
   end
 
 let remove_noop_assignments =
