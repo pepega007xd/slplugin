@@ -19,7 +19,7 @@ class Tool(benchexec.tools.template.BaseTool2):
         args = "-ulevel=3 -scf -sl -sl-benchmark-mode -sl-no-catch-exceptions -sl-astral-encoding Bitvectors -sl-backend-solver Bitwuzla -sl-edge-deduplication -sl-simple-join"
         input_file = task.input_files[0]
         input_file = input_file[:-1] + "c"  # use .c file instead of .i file
-        return [executable] + args.split() + options + input_file
+        return [executable] + args.split() + options + [input_file]
 
     def determine_result(self, run):
         if run.exit_code.value != 0:
