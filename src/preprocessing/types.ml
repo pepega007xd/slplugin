@@ -16,7 +16,8 @@ let rec is_relevant_type (typ : typ) : bool =
   | TPtr (inner, _) -> is_relevant_type inner
   | _ -> false
 
-let is_relevant_var (var : varinfo) = is_relevant_type var.vtype
+let is_relevant_var (var : varinfo) =
+  is_relevant_type var.vtype || var.vname = Constants.null_var_name
 
 let get_struct_pointer_fields (structure : compinfo) : fieldinfo list =
   structure.cfields |> Option.get
