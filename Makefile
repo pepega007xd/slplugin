@@ -19,7 +19,7 @@ result:
 
 run:
 	dune b && dune install
-	ivette -sl -sl-msg-key '*' -sl-benchmark-mode -sl-astral-encoding Bitvectors -sl-backend-solver Bitwuzla -sl-edge-deduplication -sl-simple-join $(ARGS)
+	ivette -ulevel=3 -scf -sl -sl-msg-key '*' -sl-benchmark-mode -sl-astral-encoding Bitvectors -sl-backend-solver Bitwuzla -sl-edge-deduplication -sl-simple-join $(ARGS)
 
 %:
 	@:
