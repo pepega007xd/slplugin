@@ -69,6 +69,9 @@ let convert_to_dls (formula : Formula.t) : Formula.t =
               || is_unique_fresh second_dls.first formula)
            (* [prev] pointer from second DLS must lead to end of the previous DLS *)
            && Formula.is_eq first_dls.last second_dls.prev formula
+           (* prev and next cannot point back into the list *)
+           && (not @@ Formula.is_eq first_dls.first first_dls.prev formula)
+           && (not @@ Formula.is_eq second_dls.last second_dls.next formula)
            (* DLS must not be cyclic (checked both forward and backward) *)
            && Astral_query.check_inequality first_dls.first second_dls.next
                 formula
