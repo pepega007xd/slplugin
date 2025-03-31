@@ -130,16 +130,23 @@ let remove_ptos_from_vars (vars : Formula.var list) (formula : Formula.t) =
     formula vars
 
 let remove_empty_lists (formula : Formula.t) : Formula.t =
-  List.filter
-    (function
-      | Formula.LS ls -> not @@ Formula.is_eq ls.first ls.next formula
-      | Formula.DLS dls ->
-          not
-          @@ (Formula.is_eq dls.first dls.next formula
-             || Formula.is_eq dls.last dls.prev formula)
-      | Formula.NLS nls -> not @@ Formula.is_eq nls.first nls.top formula
-      | _ -> true)
-    formula
+  List.fold_left
+    (fun formula -> function
+      | Formula.LS ls when Formula.is_eq ls.first ls.next formula ->
+          Formula.remove_atom (LS ls) formula
+      | Formula.DLS dls
+        when Formula.is_eq dls.first dls.next formula
+             || Formula.is_eq dls.first dls.prev formula
+             || Formula.is_eq dls.last dls.next formula
+             || Formula.is_eq dls.last dls.prev formula ->
+          formula
+          |> Formula.remove_atom (DLS dls)
+          |> Formula.add_eq dls.first dls.next
+          |> Formula.add_eq dls.last dls.prev
+      | Formula.NLS nls when Formula.is_eq nls.first nls.top formula ->
+          Formula.remove_atom (NLS nls) formula
+      | _ -> formula)
+    formula formula
 
 module Tests = struct
   open Testing
