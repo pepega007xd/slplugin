@@ -156,6 +156,24 @@ let remove_not_operator =
       | _ -> DoChildren
   end
 
+let remove_const_conditions =
+  object
+    inherit Visitor.frama_c_inplace
+
+    method! vstmt_aux (stmt : stmt) =
+      match stmt.skind with
+      | If (condition, th, el, _) ->
+          let new_stmtkind =
+            match constFoldToInt condition with
+            | Some n when Z.equal Z.one n -> Block th
+            | Some n when Z.equal Z.zero n -> Block el
+            | _ -> stmt.skind
+          in
+          stmt.skind <- new_stmtkind;
+          DoChildren
+      | _ -> DoChildren
+  end
+
 let stack_allocated_vars : SL.Variable.t list ref = ref []
 
 let collect_stack_allocated_vars =
@@ -183,6 +201,7 @@ let preprocess () =
   in
 
   Visitor.visitFramacFileFunctions (unique_names functions) file;
+  Visitor.visitFramacFileFunctions remove_const_conditions file;
   Visitor.visitFramacFileFunctions replace_constants file;
   visitCilFileFunctions remove_casts file;
   Visitor.visitFramacFileFunctions remove_local_init file;

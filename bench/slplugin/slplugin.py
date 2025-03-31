@@ -16,10 +16,11 @@ class Tool(benchexec.tools.template.BaseTool2):
         return "https://github.com/pepega007xd/slplugin"
 
     def cmdline(self, executable, options, task, rlimits):
-        args = "-ulevel=3 -scf -sl -sl-benchmark-mode -sl-no-catch-exceptions -sl-astral-encoding Bitvectors -sl-backend-solver Bitwuzla -sl-edge-deduplication -sl-simple-join"
         input_file = task.input_files[0]
         input_file = input_file[:-1] + "c"  # use .c file instead of .i file
-        return [executable] + args.split() + options + [input_file]
+
+        args = f"-scf -ulevel=3 {input_file} -then-replace -sl -sl-benchmark-mode -sl-no-catch-exceptions -sl-astral-encoding Bitvectors -sl-backend-solver Bitwuzla -sl-edge-deduplication -sl-simple-join"
+        return [executable] + args.split() + options
 
     def determine_result(self, run):
         if run.exit_code.value != 0:
