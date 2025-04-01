@@ -34,21 +34,23 @@ let reduce_equiv_classes (formula : Formula.t) : Formula.t =
      in an equiv class created by a substitution *)
   |> Formula.map_equiv_classes @@ List.sort_uniq SL.Variable.compare
 
-let remove_distinct_only (formula : Formula.t) : Formula.t =
-  let fresh_distinct_only (var : Formula.var) : bool =
-    is_fresh_var var && Formula.count_occurences_excl_distinct var formula = 0
+let remove_irrelevant_vars (formula : Formula.t) : Formula.t =
+  let is_relevant_var (var : Formula.var) : bool =
+    (not @@ is_fresh_var var)
+    || Formula.count_relevant_occurences var formula > 0
   in
   List.filter
     (function
       | Formula.Distinct (lhs, rhs) ->
-          not @@ (fresh_distinct_only lhs || fresh_distinct_only rhs)
+          is_relevant_var lhs && is_relevant_var rhs
+      | Formula.Freed var -> is_relevant_var var
       | _ -> true)
     formula
 
 (* removes all spatial atoms where the source variable doesn't appear anywhere else in the formula *)
 let remove_leaks (formula : Formula.t) : Formula.t =
   let is_fresh_unique (var : Formula.var) : bool =
-    is_fresh_var var && Formula.count_occurences_excl_distinct var formula = 1
+    is_fresh_var var && Formula.count_relevant_occurences var formula = 1
   in
   let junk_atoms, valid_atoms =
     List.partition
@@ -152,8 +154,12 @@ module Tests = struct
   open Testing
   open Formula
 
-  let%test "remove_distinct_only" =
-    let f = [ Distinct (nil, x') ] |> remove_distinct_only in
+  let%test "remove_irrelevant_vars" =
+    let f = [ Distinct (nil, x') ] |> remove_irrelevant_vars in
+    assert_eq f []
+
+  let%test "remove_irrelevant_vars_2" =
+    let f = [ Freed x'; Distinct (nil, x') ] |> remove_irrelevant_vars in
     assert_eq f []
 
   (* let%test_unit "reduce_equiv_classes" = *)

@@ -15,6 +15,7 @@ type pto_target =
 type atom =
   | Eq of var list
   | Distinct of var * var
+  | Freed of var
   | PointsTo of var * pto_target
   | LS of ls
   | DLS of dls
@@ -54,6 +55,7 @@ let atom_to_string : atom -> 'a =
   function
   | Eq vars -> vars |> List.map v |> String.concat " = "
   | Distinct (lhs, rhs) -> v lhs ^ " != " ^ v rhs
+  | Freed var -> "freed(" ^ v var ^ ")"
   | PointsTo (src, LS_t next) -> v src ^ " -> " ^ v next
   | PointsTo (src, DLS_t (next, prev)) ->
       Format.sprintf "%s -> n:%s,p:%s" (v src) (v next) (v prev)
@@ -100,6 +102,7 @@ let to_astral (f : t) : SL.t =
   let map_atom = function
     | Eq vars -> SL.mk_eq (List.map v vars)
     | Distinct (lhs, rhs) -> SL.mk_distinct2 (v lhs) (v rhs)
+    | Freed var -> SL_builtins.mk_freed (v var)
     | PointsTo (src, LS_t next) -> SL_builtins.mk_pto_ls (v src) ~next:(v next)
     | PointsTo (src, DLS_t (next, prev)) ->
         SL_builtins.mk_pto_dls (v src) ~next:(v next) ~prev:(v prev)
@@ -177,6 +180,7 @@ let get_vars (f : t) : var list =
     (function
       | Eq vars -> vars
       | Distinct (lhs, rhs) -> [ lhs; rhs ]
+      | Freed var -> [ var ]
       | PointsTo (src, LS_t next) -> [ src; next ]
       | PointsTo (src, DLS_t (next, prev)) -> [ src; next; prev ]
       | PointsTo (src, NLS_t (top, next)) -> [ src; next; top ]
@@ -195,6 +199,7 @@ let subsitute_in_atom (old_var : var) (new_var : var) : atom -> atom =
   function
   | Eq vars -> Eq (List.map v vars)
   | Distinct (lhs, rhs) -> Distinct (v lhs, v rhs)
+  | Freed var -> Freed (v var)
   | PointsTo (src, LS_t next) -> PointsTo (v src, LS_t (v next))
   | PointsTo (src, DLS_t (next, prev)) ->
       PointsTo (v src, DLS_t (v next, v prev))
@@ -497,7 +502,7 @@ let rec materialize (var : var) (f : t) : t list =
   | DLS dls when var = dls.last ->
       (f
       |> add_atom (PointsTo (var, DLS_t (dls.next, fresh_var)))
-      |> add_atom @@ mk_dls dls.first fresh_var dls.prev var (dls.min_len - 1))
+      |> add_atom @@ mk_dls dls.first fresh_var dls.prev var 0)
       :: (f |> add_eq dls.first dls.last |> add_eq dls.first dls.next
         |> add_eq dls.last dls.prev |> materialize var)
   (* case where NLS has minimum length of at least one *)
@@ -516,7 +521,7 @@ let rec materialize (var : var) (f : t) : t list =
       (f
       |> add_atom (PointsTo (var, NLS_t (fresh_var, fresh_ls)))
       |> add_atom @@ mk_ls fresh_ls nls.next 0
-      |> add_atom @@ mk_nls fresh_var nls.top nls.next (nls.min_len - 1))
+      |> add_atom @@ mk_nls fresh_var nls.top nls.next 0)
       (* length 0 cases *)
       :: (f |> add_eq nls.first nls.top
          |> add_atom @@ mk_ls nls.first nls.next 0
@@ -567,11 +572,11 @@ let split_by_reachability (vars : var list) (f : t) : t * t =
   in
   (reachable, unreachable)
 
-(** returns true when variable appears only once in the formula, [Distinct]
-    atoms are ignored *)
-let count_occurences_excl_distinct (var : var) (f : t) : int =
+(** returns true when variable appears only once in the formula, [Distinct] and
+    [Freed] atoms are ignored *)
+let count_relevant_occurences (var : var) (f : t) : int =
   f
-  |> List.filter (function Distinct _ -> false | _ -> true)
+  |> List.filter (function Distinct _ | Freed _ -> false | _ -> true)
   |> get_vars |> Common.list_count var
 
 let canonicalize (f : t) : t =

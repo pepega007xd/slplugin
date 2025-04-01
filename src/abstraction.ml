@@ -1,7 +1,7 @@
 open Common
 
 let is_unique_fresh (var : Formula.var) (formula : Formula.t) : bool =
-  is_fresh_var var && Formula.count_occurences_excl_distinct var formula = 2
+  is_fresh_var var && Formula.count_relevant_occurences var formula = 2
 
 let is_in_formula (src : Formula.var) (dst : Formula.var)
     (field : Types.field_type) (formula : Formula.t) : bool =
