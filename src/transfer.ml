@@ -90,17 +90,9 @@ let call (lhs_opt : Formula.var option) (func : Cil_types.varinfo)
              |> Formula.add_atom spatial_atom)
   | "free", [ src ] -> (
       try
-        let target_vars =
-          Formula.get_spatial_atom_from src formula
-          |> Formula.get_targets_of_atom
-          |> List.filter (fun dst -> not @@ Formula.is_eq src dst formula)
-        in
         formula |> Formula.materialize src
         |> List.map (Formula.remove_spatial_from src)
-        |> List.map (fun formula ->
-               List.fold_left
-                 (fun formula dst -> Formula.Distinct (src, dst) :: formula)
-                 formula target_vars)
+        |> List.map (Formula.add_atom @@ Formula.Freed src)
       with
       | Formula.Invalid_deref (var, formula) ->
           raise @@ Formula.Invalid_free (var, formula)

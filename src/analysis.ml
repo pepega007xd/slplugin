@@ -237,7 +237,7 @@ let doEdge (prev_stmt : stmt) (next_stmt : stmt) (state : t) : t =
     |> List.map remove_leaks
     |> List.map reduce_equiv_classes
     |> do_abstraction
-    |> List.map remove_distinct_only
+    |> List.map remove_irrelevant_vars
     |> List.map remove_single_eq
     |> List.map remove_empty_lists
     |> List.map (Formula.remove_spatial_from Formula.nil)
