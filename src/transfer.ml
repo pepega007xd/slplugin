@@ -7,6 +7,16 @@ let assign (lhs : Formula.var) (rhs : Formula.var) (formula : Formula.t) :
     Formula.t =
   formula |> Formula.substitute_by_fresh lhs |> Formula.add_eq lhs rhs
 
+(** transfer function for [*var = var;], lhs is assumed to be a stack pointer *)
+let assign_lhs_deref (lhs : Formula.var) (rhs : Formula.var)
+    (formula : Formula.t) : Formula.t =
+  let lhs_field = Types.Other Constants.ptr_field_name in
+  let lhs_target =
+    Formula.get_spatial_target lhs lhs_field formula |> Option.get
+  in
+  assign lhs_target rhs formula
+  |> Formula.change_pto_target lhs lhs_field lhs_target
+
 (** transfer function for [var = var->field;] *)
 let assign_rhs_field (lhs : Formula.var) (rhs : Formula.var)
     (rhs_field : Types.field_type) (formula : Formula.t) : Formula.t =
