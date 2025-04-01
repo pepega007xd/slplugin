@@ -46,10 +46,7 @@ let doInstr _ (instr : instr) (prev_state : t) : t =
              (Other Constants.ptr_field_name))
           prev_state
     | Assign_deref_lhs (lhs, rhs) ->
-        List.map
-          (Transfer.assign_lhs_field (var lhs) (Other Constants.ptr_field_name)
-             (var rhs))
-          prev_state
+        prev_state |> List.map (Transfer.assign_lhs_deref (var lhs) (var rhs))
     | Assign_ref (lhs, rhs) ->
         List.map
           (Formula.add_atom
