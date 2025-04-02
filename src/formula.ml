@@ -240,7 +240,7 @@ let swap_vars (var1 : var) (var2 : var) (f : t) =
   |> substitute ~var:tmp_name ~by:var2
 
 let standardize_fresh_var_names (f : t) : t =
-  let vars = f |> get_fresh_vars in
+  let vars = get_fresh_vars f |> List.sort_uniq SL.Variable.compare in
   let names =
     List.mapi
       (fun idx var ->
