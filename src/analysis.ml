@@ -240,7 +240,9 @@ let doEdge (prev_stmt : stmt) (next_stmt : stmt) (state : t) : t =
     |> List.map (Formula.remove_spatial_from Formula.nil)
     (* deduplicate atoms syntactically *)
     |> List.map (List.sort_uniq compare)
-    |> join_similar_formulas
+    |> Formula.canonicalize_state
+    |> List.map Formula.standardize_fresh_var_names
+    |> Common.list_map_pairs generalize_similar_formulas
     (* deduplicate formulas syntactically *)
     |> List.sort_uniq compare
     (* deduplicate formulas semantically *)
