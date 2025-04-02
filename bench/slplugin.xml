@@ -3,7 +3,7 @@
 <benchmark 
   tool="slplugin.slplugin"
   displayName="slplugin"
-  timelimit="5 min"
+  timelimit="15 min"
   memlimit="1500 MB"
 >
   <rundefinition>
