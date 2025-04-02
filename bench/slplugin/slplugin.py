@@ -25,9 +25,9 @@ class Tool(benchexec.tools.template.BaseTool2):
 
         args_ulevel_3 = self.get_args(input_file, 3)
         args_ulevel_2 = self.get_args(input_file, 2)
+        args_ulevel_0 = self.get_args(input_file, 0)
 
-        return [executable, "-c",
-                f"timeout {rlimits.cputime // 2} {args_ulevel_3} || {args_ulevel_2}"]
+        return [executable, "-c", f"timeout {rlimits.cputime // 3} {args_ulevel_3} || timeout {rlimits.cputime // 3} {args_ulevel_2} || {args_ulevel_0}"]
 
     def determine_result(self, run):
         if run.exit_code.value != 0:
