@@ -515,6 +515,7 @@ let rec materialize (var : var) (f : t) : t list =
         |> add_atom @@ mk_ls fresh_ls nls.next 0
         |> add_atom @@ mk_nls fresh_var nls.top nls.next (nls.min_len - 1);
       ]
+  (* case where NLS has minimum length == 0 *)
   | NLS nls ->
       let fresh_ls = SL.Variable.mk_fresh "fresh" Sort.loc_ls in
       (* length 1+ case *)
@@ -523,9 +524,7 @@ let rec materialize (var : var) (f : t) : t list =
       |> add_atom @@ mk_ls fresh_ls nls.next 0
       |> add_atom @@ mk_nls fresh_var nls.top nls.next 0)
       (* length 0 cases *)
-      :: (f |> add_eq nls.first nls.top
-         |> add_atom @@ mk_ls nls.first nls.next 0
-         |> materialize var)
+      :: (f |> add_eq nls.first nls.top |> materialize var)
   | _ -> assert false
 
 (** Miscellaneous *)
