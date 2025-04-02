@@ -4,7 +4,7 @@ import benchexec.result as result
 
 class Tool(benchexec.tools.template.BaseTool2):
     def executable(self, tool_locator):
-        return tool_locator.find_executable("frama-c")
+        return tool_locator.find_executable("sh")
 
     def version(self, executable):
         return "0.1"
@@ -15,12 +15,19 @@ class Tool(benchexec.tools.template.BaseTool2):
     def project_url(self):
         return "https://github.com/pepega007xd/slplugin"
 
+    def get_args(self, input_file, ulevel):
+        return f"frama-c -scf -ulevel={ulevel} {
+            input_file} -then-replace -sl -sl-benchmark-mode -sl-no-catch-exceptions -sl-astral-encoding Bitvectors -sl-backend-solver Bitwuzla -sl-edge-deduplication -sl-simple-join"
+
     def cmdline(self, executable, options, task, rlimits):
         input_file = task.input_files[0]
         input_file = input_file[:-1] + "c"  # use .c file instead of .i file
 
-        args = f"-scf -ulevel=3 {input_file} -then-replace -sl -sl-benchmark-mode -sl-no-catch-exceptions -sl-astral-encoding Bitvectors -sl-backend-solver Bitwuzla -sl-edge-deduplication -sl-simple-join"
-        return [executable] + args.split() + options
+        args_ulevel_3 = self.get_args(input_file, 3)
+        args_ulevel_2 = self.get_args(input_file, 2)
+
+        return [executable, "-c",
+                f"timeout {rlimits.cputime // 2} {args_ulevel_3} || {args_ulevel_2}"]
 
     def determine_result(self, run):
         if run.exit_code.value != 0:
