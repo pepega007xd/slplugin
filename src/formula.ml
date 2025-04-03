@@ -593,15 +593,14 @@ let canonicalize (f : t) : t =
 let canonicalize_state (state : state) : state =
   state |> List.map canonicalize |> List.sort_uniq compare
 
-let sum_of_bounds (add_ptos : bool) (f : t) : int =
+let bound_of_atom (with_ptos : bool) : atom -> int = function
+  | LS { min_len; _ } | DLS { min_len; _ } | NLS { min_len; _ } -> min_len
+  | PointsTo _ when with_ptos -> 1
+  | _ -> 0
+
+let sum_of_bounds (with_ptos : bool) (f : t) : int =
   let result =
-    f
-    |> List.map (function
-         | LS { min_len; _ } | DLS { min_len; _ } | NLS { min_len; _ } ->
-             min_len
-         | PointsTo _ when add_ptos -> 1
-         | _ -> 0)
-    |> List.fold_left ( + ) 0
+    f |> List.map (bound_of_atom with_ptos) |> List.fold_left ( + ) 0
   in
   if List.exists (function LS _ | DLS _ | NLS _ -> true | _ -> false) f then
     result - 1

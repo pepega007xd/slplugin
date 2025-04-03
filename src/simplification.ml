@@ -68,7 +68,9 @@ let remove_leaks (formula : Formula.t) : Formula.t =
   if List.is_empty junk_atoms then formula
   else (
     List.iter
-      (Self.warning ~current:true "leak of atom %a" Formula.pp_atom)
+      (fun atom ->
+        if Formula.bound_of_atom true atom > 0 then
+          Self.warning ~current:true "leak of atom %a" Formula.pp_atom atom)
       junk_atoms;
     valid_atoms)
 
