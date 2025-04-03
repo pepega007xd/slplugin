@@ -31,10 +31,12 @@ let run_analysis () =
 let main () =
   Printexc.record_backtrace true;
   try run_analysis () with
-  | Formula.Invalid_deref (var, formula) ->
+  | Formula.Invalid_deref (var, formula)
+    when not !Analysis.nondet_condition_reached ->
       Common.warning "Invalid_deref: var '%a' in formula '%a'" SL.Variable.pp
         var Formula.pp_formula formula
-  | Formula.Invalid_free (var, formula) ->
+  | Formula.Invalid_free (var, formula)
+    when not !Analysis.nondet_condition_reached ->
       Common.warning "Invalid_free: var '%a' in formula '%a'" SL.Variable.pp var
         Formula.pp_formula formula
   | e ->
