@@ -6,10 +6,79 @@
   timelimit="15 min"
   memlimit="1500 MB"
 >
+  <propertyfile>../../sv-benchmarks/c/properties/valid-memsafety.prp</propertyfile>
+
   <rundefinition>
-    <tasks>
-      <includesfile>../../sv-benchmarks/c/LinkedLists.set</includesfile>
-      <propertyfile>../../sv-benchmarks/c/properties/valid-memsafety.prp</propertyfile>
+    <tasks name="arrays">
+      <include>../../sv-benchmarks/c/array-fpi/*.yml</include>
+      <include>../../sv-benchmarks/c/array-memsafety/*.yml</include>
+      <include>../../sv-benchmarks/c/array-examples/*.yml</include>
+      <include>../../sv-benchmarks/c/array-memsafety-realloc/*.yml</include>
+      <include>../../sv-benchmarks/c/termination-15/*.yml</include>
+      <include>../../sv-benchmarks/c/termination-crafted-lit/HeizmannHoenickeLeikePodelski-ATVA2013-Fig7.yml</include>
+      <include>../../sv-benchmarks/c/termination-crafted/Arrays*.yml</include>
+      <include>../../sv-benchmarks/c/termination-crafted/LexIndexValue*.yml</include>
+      <include>../../sv-benchmarks/c/termination-crafted/NonTermination*.yml</include>
+      <include>../../sv-benchmarks/c/termination-dietlibc/*.yml</include>
+      <include>../../sv-benchmarks/c/termination-memory-alloca/*.yml</include>
+      <include>../../sv-benchmarks/c/verifythis/duplets.yml</include>
+      <include>../../sv-benchmarks/c/verifythis/elimination_max.yml</include>
+      <include>../../sv-benchmarks/c/verifythis/lcp.yml</include>
+      <include>../../sv-benchmarks/c/verifythis/prefixsum_iter.yml</include>
+      <include>../../sv-benchmarks/c/verifythis/elimination_max_rec.yml</include>
+      <include>../../sv-benchmarks/c/verifythis/elimination_max_rec_onepoint.yml</include>
+    </tasks>
+
+    <tasks name="heap">
+      <include>../../sv-benchmarks/c/memsafety/*.yml</include>
+      <include>../../sv-benchmarks/c/memsafety-ext/*.yml</include>
+      <include>../../sv-benchmarks/c/memsafety-ext2/*.yml</include>
+      <include>../../sv-benchmarks/c/list-ext-properties/*.yml</include>
+      <include>../../sv-benchmarks/c/memory-alloca/*.yml</include>
+      <include>../../sv-benchmarks/c/ldv-memsafety/*.yml</include>
+      <include>../../sv-benchmarks/c/ldv-memsafety-bitfields/*.yml</include>
+      <include>../../sv-benchmarks/c/termination-memory-linkedlists/*.yml</include>
+      <include>../../sv-benchmarks/c/termination-recursive-malloc/*.yml</include>
+    </tasks>
+
+    <tasks name="linkedlists">
+      <include>../../sv-benchmarks/c/memsafety-broom/*.yml</include>
+      <include>../../sv-benchmarks/c/heap-manipulation/*.yml</include>
+      <include>../../sv-benchmarks/c/forester-heap/*.yml</include>
+      <include>../../sv-benchmarks/c/list-properties/*.yml</include>
+      <include>../../sv-benchmarks/c/ddv-machzwd/*.yml</include>
+      <include>../../sv-benchmarks/c/list-simple/*.yml</include>
+      <include>../../sv-benchmarks/c/list-ext3-properties/*.yml</include>
+    </tasks>
+
+    <tasks name="other">
+      <include>../../sv-benchmarks/c/loops/*.yml</include>
+      <include>../../sv-benchmarks/c/loop-acceleration/*.yml</include>
+      <include>../../sv-benchmarks/c/loops-crafted-1/*.yml</include>
+      <include>../../sv-benchmarks/c/ntdrivers/*.yml</include>
+      <include>../../sv-benchmarks/c/ntdrivers-simplified/*.yml</include>
+      <include>../../sv-benchmarks/c/locks/*.yml</include>
+      <include>../../sv-benchmarks/c/memsafety-ext3/*.yml</include>
+      <include>../../sv-benchmarks/c/pthread-memsafety/*.yml</include>
+      <include>../../sv-benchmarks/c/memsafety-bftpd/*.yml</include>
+      <include>../../sv-benchmarks/c/termination-crafted/4BitCounterPointer.yml</include>
+      <include>../../sv-benchmarks/c/termination-crafted/SyntaxSupportPointer*.yml</include>
+      <include>../../sv-benchmarks/c/ldv-regression/*.yml</include>
+      <include>../../sv-benchmarks/c/loop-industry-pattern/aiob_4*.yml</include>
+      <include>../../sv-benchmarks/c/recursive-with-pointer/*.yml</include>
+    </tasks>
+
+    <tasks name="juliet">
+      <include>../../sv-benchmarks/c/Juliet_Test/CWE415*_good.yml</include>
+      <include>../../sv-benchmarks/c/Juliet_Test/CWE476*_int*_good.yml</include>
+      <include>../../sv-benchmarks/c/Juliet_Test/CWE476*_long*_good.yml</include>
+      <include>../../sv-benchmarks/c/Juliet_Test/CWE476*_struct*_good.yml</include>
+      <include>../../sv-benchmarks/c/Juliet_Test/CWE121*rand*_good.yml</include>
+      <include>../../sv-benchmarks/c/Juliet_Test/CWE121*fgets*_good.yml</include>
+      <include>../../sv-benchmarks/c/Juliet_Test/CWE121*large*_good.yml</include>
+      <include>../../sv-benchmarks/c/Juliet_Test/CWE401*__int*_good.yml</include>
+      <include>../../sv-benchmarks/c/Juliet_Test/CWE401*__struct*_good.yml</include>
+      <include>../../sv-benchmarks/c/Juliet_Test/CWE401*__twoIntsStruct*_good.yml</include>
     </tasks>
   </rundefinition>
 </benchmark>
