@@ -110,10 +110,6 @@ I would like to thank my supervisor Ing. Tomáš Dacík and my advisor prof. Ing
 
 = Introduction
 
-test: @astral
-
-// no subchapters
-
 // - problem of memory safety bugs in software
 // - C/C++
 // - source of vulnerabilities
@@ -121,19 +117,42 @@ test: @astral
 // - Linked lists
 // - SL
 
+// TODO: add statistics/concrete examples of vulnerabilities?
+There are two basic approaches to memory management in programming languages. One approach relies on a garbage collector to reclaim unreachable allocated memory automatically. The other, manual memory management, relies on the programmer to allocate and free memory explicitly. Some languages that rely on manual memory management allow for a group of bugs, called memory safety bugs, to occur. These contain _use-after-free_ -- access to freed memory, other kinds of invalid pointer dereferences, _double-free_ -- deallocating already freed memory, or _memory leaks_ -- a loss of reference to an allocation. These bugs are often a source of security vulnerabilities in affected programs, since invalid memory accesses are considered undefined behavior in C and C++.
+
+// TODO: add examples? valgrind, asan, fuzzing? static analysis in detail in Current Approaches
+There is a number of techniques to find these bugs and ensure memory safety of programs. One approach is testing and dynamic analysis, often by code instrumentation done by the compiler. Another approach is static analysis and formal verification. Formal verification is a collection of methods to prove correctness of a program, or to prove a specific property of a program. In this case, the property is memory safety, i.e. that every memory access in the program is valid and memory de/allocation is done correctly.
+
+One of the approaches to static analysis is so-called _dataflow analysis_, which relies on traversing the control flow graph (CFG) of a program and tracking all possible values of variables in the program. In this context, the information we are interested in are the values of pointers, and the data structures in the program's heap.
+
+Formulae of _separation logic_ are often used to represent the shapes of these data structures. Separation logic allows us to describe structures such as linked lists of unknown size using a single formula. Models of these formulae then represent concrete configurations of the heap.
+
+The goal of this work is to develop a tool for static analysis of C programs, that is able to verify the correctness of handling dynamically allocated memory. The work focuses on programs opeating on variants of linked lists, as this is a common data structure in low-level software, where the C language still dominates.
+
+The analyzer utilizes dataflow analysis to track what data structures would exist during the program's runtime. The tool is implemented using the Frama-C framework, which provides a simplified representation of the input program's AST with an API for transformations, and a library for implementing the dataflow analysis itself.
+
+The program states tracked in the dataflow analysis are represented using the formulae of separation logic. To determine which states generated during the analysis are fully covered by other states, a solver for separation logic _Astral_ is used. This is needed to find invariants for loops in the program, which is required for the analysis to terminate.
+
+The analyzer is then tested on example programs that work with all supported types of linked lists, trying common list operations such as construction, traversal, insertion into the list, reversing, deallocation, and others. The tool is also tested on a subset of the SV-COMP benchmarks dedicated to linked lists.
+
 = Preliminaries
 
 == Formal Verification
 
 == Separation Logic
 
+== Frama-C
+
+// Describe Cil AST -> or not? maybe just stmt/exp representation
+// Dataflow2 module -> maybe?
+// Visitor mechanism
+
 == Dataflow Analysis
 
-=== Astral Solver
+=== Astral Solver <astral_chapter>
 
 = Current Approaches
 
-// TODO: find out what exists
 // verifiers from svcomp
 // - compare [SL?] in predator/cpachecker to ours),
 // - other analyzers? forester automata something something -> do not explain, just mention
@@ -152,20 +171,95 @@ test: @astral
 // - Simplification helps to find fixpoints faster (or at all)
 // - difference between program/fresh vars
 
+The analysis itself consists of multiple steps. First, the analyzed program is preprocessed into a form more suitable for analysis. Then the dataflow analysis over the modified AST is executed.
+
+
+// Visitor.visitFramacFileFunctions (unique_names functions) file;
+// Visitor.visitFramacFileFunctions remove_const_conditions file;
+// Visitor.visitFramacFileFunctions replace_constants file;
+// visitCilFileFunctions remove_casts file;
+// Visitor.visitFramacFileFunctions remove_local_init file;
+// Visitor.visitFramacFileFunctions remove_unused_call_args file;
+// Visitor.visitFramacFileFunctions remove_noop_assignments file;
+// Visitor.visitFramacFileFunctions Stmt_split.split_complex_stmts file;
+// Visitor.visitFramacFileFunctions remove_not_operator file;
+// Visitor.visitFramacFileFunctions Condition_split.split_conditions file;
+// Visitor.visitFramacFileFunctions remove_noop_assignments file;
+// Visitor.visitFramacFileFunctions remove_non_list_stmts file;
+// Types.process_types file;
+// Visitor.visitFramacFileFunctions collect_stack_allocated_vars file;
+
+The preprocessing consists of an external semantic constant propagation pass along with loop unrolling, followed by multiple custom passes over the AST. The external preprocessing is described in @const_prop. First, all AST nodes not relevant for the analysis are removed. This includes arithmetic and binary operations, type casts, integer comparison operations, and others. Then, variable initialization is replaced by simple assignments. Next, function call arguments with types irrelevant to the analysis are removed.
+
+At this point, the AST should ideally only contain analyzable AST nodes. However, to simplify the implementation of the dataflow analysis, it is necessary to also split expressions in assignments, function call arguments, and conditions into a series of elementary assignments. This is done in the next few passes. Each complex statement is replaced by a block, containing temporary variables to which parts of the original expression are assigned.
+
+After this, all assignments into variables with irrelevant types are removed or replaced by a check that the dereferenced variable is allocated. This is followed by a type analysis. As described in @astral_chapter, when introducing a variable into a formula, we need to provide a sort. This sort is derived from the type of the corresponding C variable. For types which form one of the supported kinds of lists (see @astral_chapter), a special predefined sort from `Astral` must be used, so that points-to atoms from these variables can later be abstracted to list atoms. For all other structure types, a new sort must be declared and registered in the solver instance. See @type_analysis for a detailed description.
+
+Lastly, a list of all variables containing a pointer to another variable on the stack is collected. This is used later in the analysis since dereferences of these variables need special handling compared to variables pointing to the heap.
+
 = Implementation Details
 
-== Framework
-
-// Mention Frama-C/Ivette only here, or earlier?
-// Describe Cil AST -> or not? maybe just stmt/exp representation
+== Program and Logic Variables
 
 == Preprocessing
+
+This chapter describes the details of AST preprocessing done externally by Frama-C and internally using the Cil Visitor mechanism.
 
 // Describe problem with type analysis -> static from C types / dynamic from actual heap structures created by the program -> possible future improvement
 // Describe problem with complex stmts (*a->b = c->d->e), splitting into instructions
 // maybe formalize Instr_type into something like in original paper?
 // mention splitting condition exp, func param
 // collecting stack allocated vars?
+
+=== Semantic Constant Propagation <const_prop>
+
+The only kind of condition the analysis is able to process are equalities and inequalities of variables. This turned out to be a problem in many of the SV-COMP benchmarks, because they often contained a variation of the following code:
+
+```c
+int len = 5;
+...
+while (len) {
+  append_node(&list, data);
+  len--;
+}
+...
+access(list);
+```
+
+Because all other conditions are considered nondeterministic (see @conditions), the analysis will include the possibility of the number of loop iteations being zero. This means that the state after the loop will contain a formula describing the list having zero length. The problem is that the code below the loop will rightfully assume the list has non-zero length, accessing n-th node in the list without checking that the pointer to it is not `NULL`. The analysis will then detect a potential invalid dereference, and because a nondeterministic condition had been reached, it will return an unknown result.
+
+The solution to this is to run an analysis of integer values on the program and statically determine the number of iterations over the loop. Integrating analysis of integer values into the dataflow pass itself would be a large change to the project late in development, so it was decided to use the _Semantic constant folding_ (SCF) plugin @scf_plugin shipped with Frama-c, which in turn uses the Eva @eva_user_manual plugin for value analysis. This is used in combination with Frama-C's loop unrolling setting `ulevel` to unroll a few iterations of every loop. This preprocessing pass will produce roughly the following code when used with setting `-ulevel=2`:
+
+```c
+int len = 5;
+
+if (!5)
+    goto unfolding_2_loop;
+append_node(&list, data);
+len = 4;
+
+if (!4)
+    goto unfolding_2_loop;
+append_node(&list, data);
+len = 3;
+
+while (len) {
+    append_node(&list, data);
+    len--;
+}
+
+unfolding_2_loop:;
+```
+
+As you can see, the first two iterations of the loop have been unrolled before the loop body, and the variable `len` inside the unrolled conditional jumps was replaced by its value at that moment by the SCF plugin. These constant conditions are then removed altogether, see @conditions.
+
+=== Preprocessing of Conditions <conditions>
+
+=== Type Analysis <type_analysis>
+
+// As described in @astral_chapter, when introducing a variable into a formula, we need to provide a sort. This sort is derived from the type of the corresponding C variable. For types which form one of the supported kinds of lists (see @astral_chapter), a special predefined sort from `Astral` must be used, so that points-to atoms from these variables can later be abstracted to list atoms. For all other structure types, a new sort must be declared and registered in the solver instance. See @type_analysis for a detailed description.
+
+
 
 == Analysis
 
