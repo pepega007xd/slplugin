@@ -191,7 +191,8 @@ let doStmt (stmt : stmt) (_ : t) : t stmtaction =
   | Instr instr when Config.Benchmark_mode.get () -> (
       match Instruction_type.get_instr_type instr with
       | Instruction_type.Call (_, fn, _) ->
-          if List.mem fn.vname [ "reach_error"; "myexit"; "fail" ] then SDone
+          if List.mem fn.vname [ "reach_error"; "myexit"; "fail"; "exit" ] then
+            SDone
           else SDefault
       | _ -> SDefault)
   | _ -> SDefault

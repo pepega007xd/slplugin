@@ -59,7 +59,7 @@ let split_conditions =
                   { enode = Lval (Var lhs, NoOffset); _ },
                   { enode = Lval (Var rhs, NoOffset); _ },
                   _ ) ->
-                if Types.is_relevant_var lhs || Types.is_relevant_var rhs then
+                if Types.is_relevant_var lhs && Types.is_relevant_var rhs then
                   stmt.skind
                 else nondeterministic
             | _ -> convert_condition func condition th el location

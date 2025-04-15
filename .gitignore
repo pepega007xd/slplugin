@@ -5,3 +5,4 @@ astral_debug/
 results/
 bench/build/
 bench/slplugin.egg-info
+bp/main.pdf
