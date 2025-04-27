@@ -40,3 +40,13 @@ run-direct:
 
 %:
 	@:
+
+poster:
+	typst compile excel_poster/main.typ excel_poster/poster.pdf
+
+EXCEL_ZIP_NAME := xbrabl04_Static_Analysis_of_Heap-Manipulating_Programs_using_Separation_Logic.zip
+
+excel: poster
+	rm -rf $(EXCEL_ZIP_NAME)
+	zip -j $(EXCEL_ZIP_NAME) excel_poster/poster.pdf excel_abstract/abstrakt.pdf excel_poster/nahled.png
+
