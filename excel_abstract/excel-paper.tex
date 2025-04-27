@@ -1,6 +1,9 @@
 \documentclass{ExcelAtFIT}
 \ExcelFinalCopy
 
+\newcommand{\td}[1]{\textcolor{red}{TD: {#1}}}
+
+
 \hypersetup{
 	pdftitle={Static Analysis of Heap-Manipulating Programs using Separation Logic},
 	pdfauthor={Tomáš Brablec},
@@ -37,11 +40,11 @@ Several techniques are used to ensure the memory safety of programs. One approac
 
 One of the methods for static analysis is so-called \textit{data-flow analysis}, which involves traversing the program's control flow graph (CFG) and tracking all possible values of variables in the program. In the context of memory safety, the values we are interested in are the targets of pointers and the data structures in the program's heap. 
 
-Formulae of \textit{separation logic} (SL) are often used for this purpose, allowing us to represent data structures in dynamic memory efficiently.  The \textit{separating conjunction} operator allows us to describe distinct parts of the heap, and \textit{spatial predicates} describe memory allocations.
+Formulae of \textit{separation logic} (SL) \cite{SL, SL2} are often used for this purpose, allowing us to represent data structures in dynamic memory efficiently.  The \textit{separating conjunction} operator allows us to describe disjoint parts of the heap, and \textit{spatial predicates} describe unbounded data structures.
 
 \section{Analysis}
 
-This work implements a static analyzer capable of verifying the memory safety of C programs, with a focus on linked lists. The tool is based on data-flow analysis, and program states are represented using SL formulae. The analysis is implemented in the \textit{Frama-C framework} \cite{frama_c}, which provides a simplified AST of the analyzed program, libraries for AST transformation, and for implementing the data-flow analysis. The \textit{Astral solver} \cite{astral} is used to evaluate entailments of SL formulae, which is necessary to find fixpoints for loops.
+This work implements a static analyzer capable of verifying the memory safety of C programs, with a focus on linked lists. It is an extension of the method introduced in \cite{shape_analysis}. The tool is based on data-flow analysis, and program states are represented using SL formulae. The analysis is implemented in the \textit{Frama-C framework} \cite{frama_c}, which provides a simplified AST of the analyzed program, libraries for AST transformation, and for implementing the data-flow analysis. The \textit{Astral solver} \cite{astral} is used to evaluate entailments of SL formulae, which is necessary to find fixpoints for loops.
 
 The implementation itself can be found on \href{https://github.com/pepega007xd/slplugin}{GitHub} and consists of several parts. 
 
@@ -56,7 +59,7 @@ Another part of the implementation is the analysis of individual statements. Whe
 Before the analysis of a new statement is started, the formulae carried from the previous statement are simplified. This includes, for example, removing unreachable spatial predicates from formulae (these are then reported as memory leaks), removing unnecessary variables from equivalences, or renaming variables at the end of their lexical scope.
 
 \subsubsection{Abstraction}
-The abstraction is a process of finding spatial predicates that form a chain in a formula and merging them into a list predicate that describes a linked list of arbitrary length. The analysis supports three types of lists -- singly and doubly linked lists, and nested lists. Both linear and cyclic lists are supported.
+The abstraction is a process of finding spatial predicates that form a chain in a formula and merging them into a list predicate that describes a linked list of arbitrary length. This is needed for the convergence of the analysis on unbounded data structures. The analysis supports three types of lists -- singly and doubly linked lists, and nested lists. Both linear and cyclic lists are supported.
 
 \section{Results}
 
@@ -68,14 +71,14 @@ When bugs were introduced into these programs, the tool was able to detect them.
 \subsection{SV-COMP}
 Further testing was conducted on a dataset from the SV-COMP competition, specifically on the subset of benchmarks focused on linked lists. This dataset contains a total of 134 programs testing a wide range of operations on many types of lists. These programs include, for example, sorting lists, traversal and modification of cyclic lists, or combining several types of lists in a single program. 
 
-On this dataset, the tool can correctly analyze 77 programs (full results are available in the poster). Compared to the winner of this subcategory, PredatorHP, this tool does not support the analysis of pointer arithmetic. Currently, it is impossible to represent numeric offsets into structures using SL formulae. This prevents the successful analysis of several dozen tests from the SV-COMP dataset.
+On this dataset, the tool can correctly analyze 77 programs (full results are available in the poster). Compared to the winner of this subcategory, PredatorHP \cite{predatorHP}, this tool does not support the analysis of pointer arithmetic. Currently, it is impossible to represent numeric offsets into structures using SL formulae. This prevents the successful analysis of several dozen tests from the SV-COMP dataset.
 
 \section{Future Work} 
 One limitation of the current method is the absence of numeric value analysis, which prevents a more accurate analysis of exit conditions in loops. Such analysis would be necessary for more precise error detection in programs.
 
 One option is to add a simple numeric value analysis into the tool directly. Separation logic, as implemented by the Astral solver, allows for inserting SMT terms into formulae that can represent the values of numeric variables.
 
-A more interesting approach is to integrate this analyzer into EVA, as both tools would benefit from exchanging information during analysis. This tool could provide EVA with more precise information about pointers, such as the validity of dereferences inside loops iterating on lists. EVA could, in turn, provide more accurate values of integer variables to analyze conditions better.
+A more interesting approach is to integrate this analyzer into EVA \cite{eva}, as both tools would benefit from exchanging information during analysis. This tool could provide EVA with more precise information about pointers, such as the validity of dereferences inside loops iterating on lists. EVA could, in turn, provide more accurate values of integer variables to analyze conditions better.
 
 \section{Conclusions}
 

@@ -39,9 +39,9 @@
   2,
   [
     #pop.column-box(heading: "Introduction")[
-      *Memory safety* is a property of programs that guarantees all pointer dereferences and calls to allocation functions to be valid. Since memory safety bugs often lead to exploitable vulnerabilities, there is a need to verify the memory safety of programs.
+      *Memory safety* is a property of programs that guarantees all pointer operations to be valid. Since memory safety bugs, such as _use-after-free_ or _null pointer dereferences_, often lead to exploitable vulnerabilities, there is a need to verify the memory safety of programs.
 
-      This work implements a *static analyzer* that verifies the memory safety of C programs. The analyzer is focused on *linked lists* and works by doing a dataflow analysis over the program's CFG. Formulae of *separation logic* are used to represent the abstract memory states in the program.
+      This work implements a *static analyzer* that verifies the memory safety of C programs. The analyzer is focused on *linked lists* and works by doing a dataflow analysis over the program's CFG. Formulae of *separation logic* (SL) are used to represent the abstract memory states in the program.
 
       #figure(
         caption: [Supported lists types -- singly linked list,\
@@ -98,8 +98,8 @@
       #line(length: 100%)
 
       #figure(
-        caption: [Separation logic formula and one of its models,\
-          colors symbolize distinct allocations
+        caption: [Example of an SL formula and its model, the formula represents\
+          a disjoint partition of the heap into a list segment and a pointer.
         ],
         align(
           horizon,
@@ -107,7 +107,7 @@
             dir: ltr,
             spacing: 6em,
             $
-              text(#blue, "ls"(x,y)) * text(#red, y |-> z)
+              text(#blue, "ls"_(1+)(x,y)) * text(#red, y |-> z)
             $,
             graph.raw-render(```
             digraph NestedLinkedList {
@@ -129,8 +129,7 @@
 
     #pop.column-box(heading: "Analysis", stretch-to-next: true)[
       #figure(
-        caption: [Control flow graph of the program in @analysis_example, \
-          node numbers correspond to lines],
+        caption: [Control flow graph of the program in @analysis_example],
         graph.raw-render(
           ```
           digraph NestedLinkedList {
@@ -164,7 +163,8 @@
 
       #figure(
         caption: [
-          Simplified progress of an analysis run
+          Simplified progress of an analysis run,\
+          ($f'_(n)$ represents an existentially quantified variable)
           #grid(
             align: (horizon, left),
             row-gutter: 0.5em,
@@ -175,31 +175,34 @@
             square(fill: blue, size: 0.5em), "third loop iteration + after loop",
           )
         ],
-        grid(
-          align: left,
-          row-gutter: 0.5em,
-          columns: 2,
-          "Code", "state formulae",
-          line(length: 50%), line(length: 50%),
-          c("Node *x = malloc(size);"), [],
-          [], $x |-> f'_1$,
-          c("Node *y = x;"), [],
-          [], $x |-> f'_1 * y = x$,
-          c("while (rand()) {"), [],
-          [], $x |-> f'_1 * y = x$,
-          [], pass2($x |-> y * y |-> f'_2$),
-          [], pass3($"ls"_(2+)(x, y) * y |-> f'_3$),
-          c("  y->next = malloc(size);"), [],
-          [], $x |-> f'_1 * f'_1 |-> f'_2 * y = x$,
-          [], pass2($x |-> y * y |-> f'_2 * f'_2 |-> f'_3$),
-          [], pass3($"ls"_(2+)(x, y) * y |-> f'_3 * f'_3 |-> f'_4$),
-          c("  y = y->next;"), [],
-          [], $x |-> y * y |-> f'_2$,
-          [], pass2($x |-> f'_4 * f'_4 |-> y * y |-> f'_3$),
-          [], pass3($"ls"_(2+)(x, f'_5) * f'_5 |-> y * y |-> f'_4$),
-          c("}"), [],
-          c("y->next = NULL;"), [],
-          [], pass3($"ls"_(0+)(x, y) * y |-> bot$),
+        move(
+          dx: 1em,
+          grid(
+            align: left,
+            row-gutter: 0.5em,
+            columns: 2,
+            "Code", "state formulae",
+            line(length: 50%), line(length: 50%),
+            c("Node *x = malloc(size);"), [],
+            [], $x |-> f'_1$,
+            c("Node *y = x;"), [],
+            [], $x |-> f'_1 * y = x$,
+            c("while (rand()) {"), [],
+            [], $x |-> f'_1 * y = x$,
+            [], pass2($x |-> y * y |-> f'_2$),
+            [], pass3($"ls"_(2+)(x, y) * y |-> f'_3$),
+            c("  y->next = malloc(size);"), [],
+            [], $x |-> f'_1 * f'_1 |-> f'_2 * y = x$,
+            [], pass2($x |-> y * y |-> f'_2 * f'_2 |-> f'_3$),
+            [], pass3($"ls"_(2+)(x, y) * y |-> f'_3 * f'_3 |-> f'_4$),
+            c("  y = y->next;"), [],
+            [], $x |-> y * y |-> f'_2$,
+            [], pass2($x |-> f'_4 * f'_4 |-> y * y |-> f'_3$),
+            [], pass3($"ls"_(2+)(x, f'_5) * f'_5 |-> y * y |-> f'_4$),
+            c("}"), [],
+            c("y->next = NULL;"), [],
+            [], pass3($"ls"_(0+)(x, y) * y |-> bot$),
+          ),
         ),
       ) <analysis_example>
 
@@ -281,12 +284,11 @@
           [Correct], [77], [124], [80],
           [Correct (true)], [73], [96], [76],
           [Correct (false)], [4], [28], [4],
-          [Incorrect (true)], [0], [0], [31],
-          [Incorrect (false)], [0], [0], [9],
+          [Incorrect], [0], [0], [40],
         ),
       )
 
-      However, this tool correctly analyzes 15 tests, for which the EVA analyzer built into Frama-C produces wrong results. It could, therefore, be worth it to *integrate our analysis method into EVA* itself, improving the precision of both tools by exchanging information during analysis.
+      However, this tool correctly analyzes 15 tests, for which the EVA analyzer built into Frama-C produces wrong results, and unlike EVA, it can find memory leaks. It could, therefore, be worth it to *integrate our analysis method into EVA* itself, improving the precision of both tools by exchanging information during analysis.
 
       Manual testing shows that some simple *practical programs can be verified* with the current version of the tool, such as a postfix expression calculator that uses a linked list implementation of a stack.
 
@@ -300,7 +302,7 @@
     #pop.column-box(heading: "Future Work", stretch-to-next: true)[
       - Integrate with analyzers for other domains (e.g. EVA)
       - Detect types of lists dynamically from structures in the heap
-      - Improve the analysis of conditions to detect bugs more precisely
+      - Improve the analysis of non-pointer conditions to improve bug detection
       - Implement the remaining C language features (such as global variables)
     ]
   ],
@@ -308,11 +310,11 @@
 
 #pop.bottom-box(
   text(
-    size: 26pt,
+    size: 25pt,
     [
-      [1] T. Dacík et al., “Deciding Boolean Separation Logic via Small Models,” in _TACAS_.
-      #h(6em)
-      [2] J. Signoles et al., “Frama-c: a Software Analysis Perspective,” in _Formal Aspects of Computing_.
+      [1] T. Dacík et al., “Deciding Boolean Separation Logic via Small Models,” in _TACAS_, 2024.
+      #h(4em)
+      [2] J. Signoles et al., “Frama-C: a Software Analysis Perspective,” in _Formal Aspects of Computing_, 2015.
     ],
   ),
 )
