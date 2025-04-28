@@ -18,7 +18,7 @@
   [
     #heading(numbering: none)[Abstract]
 
-    This thesis descibes the design and implementation of a verification tool for C programs, focusing on programs using linked lists. The idea is to derive the shape of the data structures that exist in the program's heap during execution. This is then used to prove correctness of all memory accesses in the program, and to detect possible invalid memory accesses. The approach is based on representing abstract program states using formulae of separation logic. It is implemented in the Frama-C framework, utilizing its dataflow analysis template, and value analysis for semantic constant propagation. The tool was benchmarked on the linked lists subset of SV-COMP benchmarks and compared with similar verification tools. While not reaching the performance of top competitors in this category, it is on par with most verifiers.
+    This thesis describes the design and implementation of a verification tool for C programs, focusing on programs using linked lists. The idea is to derive the shape of the data structures that exist in the program's heap during execution. This is then used to prove correctness of all memory accesses in the program, and to detect possible invalid memory accesses. The approach is based on representing abstract program states using formulae of separation logic. It is implemented in the Frama-C framework, utilizing its dataflow analysis template, and value analysis for semantic constant propagation. The tool was benchmarked on the linked lists subset of SV-COMP benchmarks and compared with similar verification tools. While not reaching the performance of top competitors in this category, it is on par with most verifiers.
   ],
   [
     #heading(numbering: none)[Abstrakt]
@@ -110,6 +110,8 @@ I would like to thank my supervisor Ing. Tomáš Dacík and my advisor prof. Ing
 
 = Introduction
 
+// TODO: pridat vysledky, popis toolu, struktura prace
+
 // - problem of memory safety bugs in software
 // - C/C++
 // - source of vulnerabilities
@@ -141,15 +143,39 @@ The analyzer is then tested on example programs that work with all supported typ
 
 == Separation Logic
 
-== Frama-C
+=== Astral Solver <astral_chapter>
+
+== Frama-C <frama_c>
 
 // Describe Cil AST -> or not? maybe just stmt/exp representation
-// Dataflow2 module -> maybe?
-// Visitor mechanism
 
-== Dataflow Analysis
+Frama-C @frama_c_paper is a framework for building analysis tools aimed at C programs. Frama-C itself is written mainly in the OCaml programming language. Unlike other tools, which focus purely on finding bugs using heuristics, Frama-C specializes in verification tools. The framework itself is composed of a kernel, multiple plugins, and a GUI to present the results of analyses. The kernel provides common functionality for multiple plugins. The main component is an adapted form of the _C Intermediate Language_ (CIL) @cil, constructed by the Frama-C kernel for use within plugins, as well as an API for its manipulation. CIL has the form of a abstract syntax tree (AST) of the input source code, with extra semantic information added. This includes types of variables, whether a variable is initialized at a certain node, and other information. Frama-C also transforms the input code, making operations like type casts explicit, and otherwise making the code more suitable for static analysis. For example, all `return` statements in a function are replaced with `goto` statements leading to a single `return` at the end of the function. `for` and `while` loops are replaced with a simple infinite loop with an exit condition inside. A complete description of CIL can be found in the module `Frama_c_kernel.Cil_types`. Modules `Cil`, `Cil_datatype`, `Cil_printer`, and `Ast_info` inside contain other useful functions for AST manipulation.
 
-=== Astral Solver <astral_chapter>
+One of the functions of Frama-C is to help with the development of custom analyses in the form of plugins. Frama-C handles command-line argument parsing, reporting results and intermediate data from the analysis, and it exposes APIs for access to the input CIL.
+
+=== Dataflow analysis <dataflow>
+
+Besides a general framework for implementing analyses, Frama-C provides generic implementations of common algorithms used for static analysis. One of these is dataflow analysis, implemented in module `Dataflow2`. The purpose of dataflow analysis is to calculate all possible values of some kind for each node of the control flow graph (CFG) in the analyzed program. Nodes in a control flow graph correspond to statements in the original program, and directed edges represent all possible jumps between these statements.
+
+Dataflow analysis starts by assigning an initial state to each node of the CFG, and then progressively updates the values stored in nodes using a implementer-provided _transfer function_, following the edges between them. The transfer function takes the statement of the node, and the newly calculated state of the previous node, and produces a new state for the current node. In Frama-C, this function is called `doInstr`.
+
+When a node is reached more than once, the data for this node is computed again based on the data from the previous node, and then joined with the previous data stored for the node. The function that joins the old state with the new state is also provided by the implementer. The name of this function in Frama-C is `combinePredecessors`.
+
+The implementer must also provide the following functions:
+
+- `doStmt` -- this function is called before calling the transfer function, it is given the statement itself. The implementer has the option to stop the analysis of this statement or continue normally.
+- `doGuard` -- this function is called when an `if` statement is reached. It receives the state from the previous node and the condition expression, and generates two states, each to be used in one of the branches.
+- `doEdge` -- called between analyzing two statements. The function receives both statements, and the current state of the first statement. The function can modify this statebefore continuing with the transfer function of the second statement.
+
+Note that this list is not exhaustive, but the implementation of other function that must be provided for using the `Dataflow2` module is trivial and not relevant to the analysis itself.
+
+=== Visitor mechanism <visitors>
+
+Frama-C provides a convenient way to modify the AST of the analyzed program using a user-provided visitor object. The plugin constructs an object inheriting from a class `Visitor.frama_c_inplace`, and overrides some of the methods corresponding to the AST node that it visits. For example, when the plugin overrides the `vexpr` method, the method will be called at each expression of the AST. The method returns a value of type `Cil_types.visitAction`, which allows the visitor to either leave the node as is, change it, or continue with the visits of its children. It is also possible to visit all statements, variables, and even types.
+
+=== Ivette <ivette_chapter>
+
+Ivette is a desktop application written in TypeScript using a client-server architecture. Ivette, the client, asynchronously polls the server (Frama-C plugin) for data and displays it. The server has to first register what data has to be shown. To achieve real-time diplay of information when running an analysis, the plguin must occasionally call `Async.yield` to let the Ivette synchronize the data in the GUI application with the data generated by the running analysis. The API for registering and using Ivette can be found in the module `Server`, inside the library `frama-c-server.core`.
 
 = Current Approaches
 
@@ -173,47 +199,51 @@ The analyzer is then tested on example programs that work with all supported typ
 
 The analysis itself consists of multiple steps. First, the analyzed program is preprocessed into a form more suitable for analysis. Then the dataflow analysis over the modified AST is executed.
 
+== Preprocessing
 
-// Visitor.visitFramacFileFunctions (unique_names functions) file;
-// Visitor.visitFramacFileFunctions remove_const_conditions file;
-// Visitor.visitFramacFileFunctions replace_constants file;
-// visitCilFileFunctions remove_casts file;
-// Visitor.visitFramacFileFunctions remove_local_init file;
-// Visitor.visitFramacFileFunctions remove_unused_call_args file;
-// Visitor.visitFramacFileFunctions remove_noop_assignments file;
-// Visitor.visitFramacFileFunctions Stmt_split.split_complex_stmts file;
-// Visitor.visitFramacFileFunctions remove_not_operator file;
-// Visitor.visitFramacFileFunctions Condition_split.split_conditions file;
-// Visitor.visitFramacFileFunctions remove_noop_assignments file;
-// Visitor.visitFramacFileFunctions remove_non_list_stmts file;
-// Types.process_types file;
-// Visitor.visitFramacFileFunctions collect_stack_allocated_vars file;
+The preprocessing consists of an external semantic constant propagation pass along with loop unrolling, followed by multiple custom passes over the AST. This external preprocessing is described in @const_prop. First, all AST nodes not relevant for the analysis are removed. This includes arithmetic and binary operations, type casts, integer comparison operations, and others. Then, variable initialization is replaced by simple assignments. Next, function call arguments with types irrelevant to the analysis are removed.
 
-The preprocessing consists of an external semantic constant propagation pass along with loop unrolling, followed by multiple custom passes over the AST. The external preprocessing is described in @const_prop. First, all AST nodes not relevant for the analysis are removed. This includes arithmetic and binary operations, type casts, integer comparison operations, and others. Then, variable initialization is replaced by simple assignments. Next, function call arguments with types irrelevant to the analysis are removed.
+At this point, the AST should ideally only contain analyzable AST nodes. However, to simplify the implementation of the dataflow analysis, it is necessary to also split expressions in assignments, function call arguments, and conditions into a series of elementary assignments. Each complex statement is replaced by a block, containing temporary variables to which parts of the original expression are assigned. This is described in detail in @stmt_split.
 
-At this point, the AST should ideally only contain analyzable AST nodes. However, to simplify the implementation of the dataflow analysis, it is necessary to also split expressions in assignments, function call arguments, and conditions into a series of elementary assignments. This is done in the next few passes. Each complex statement is replaced by a block, containing temporary variables to which parts of the original expression are assigned.
+After this, all assignments into variables with irrelevant types are removed or replaced by a check that the dereferenced variable is allocated. After this pass, all _instructions_ (statements not affecting control flow) should be one of the basic instruction types defined in #plugin_link("src/preprocessing/instruction_type.ml").
 
-After this, all assignments into variables with irrelevant types are removed or replaced by a check that the dereferenced variable is allocated. This is followed by a type analysis. As described in @astral_chapter, when introducing a variable into a formula, we need to provide a sort. This sort is derived from the type of the corresponding C variable. For types which form one of the supported kinds of lists (see @astral_chapter), a special predefined sort from `Astral` must be used, so that points-to atoms from these variables can later be abstracted to list atoms. For all other structure types, a new sort must be declared and registered in the solver instance. See @type_analysis for a detailed description.
+This is followed by a type analysis. As described in @astral_chapter, when introducing a variable into a formula, we need to provide a sort. This sort is derived from the type of the corresponding C variable. For types which form one of the supported kinds of lists (see @astral_chapter), a special predefined sort from Astral must be used, so that points-to atoms from these variables can later be abstracted to list atoms. For all other structure types, a new sort must be declared and registered in the solver instance. See @type_analysis for a detailed description.
 
 Lastly, a list of all variables containing a pointer to another variable on the stack is collected. This is used later in the analysis since dereferences of these variables need special handling compared to variables pointing to the heap.
 
+== Shape Analysis
+
+The analysis itself is implemented using the `Dataflow2` module provided by Frama-C (see @dataflow), and it is composed of these main parts. First, there is the transfer function implemented for the basic instructions described in @stmt_split. Then there are the simplifications applied to the formulae between instructions. There is also the logic for the join operation. Finally, there is the implementation of specializing formulae for each branch of a condition.
+
+The transfer functions accepts formulae of separation logic and changes them to reflect the state after executing the instruction.
+
 = Implementation Details
 
-== Program and Logic Variables
+== Program and Logic Variables <program_and_logic_vars>
 
 == Preprocessing
 
-This chapter describes the details of AST preprocessing done externally by Frama-C and internally using the Cil Visitor mechanism.
-
-// Describe problem with type analysis -> static from C types / dynamic from actual heap structures created by the program -> possible future improvement
-// Describe problem with complex stmts (*a->b = c->d->e), splitting into instructions
-// maybe formalize Instr_type into something like in original paper?
-// mention splitting condition exp, func param
 // collecting stack allocated vars?
+
+This chapter describes the details of AST preprocessing done externally by Frama-C and internally using the Cil Visitor mechanism (see @visitors). Many of the simple preprocessing passes are implemented directly in #plugin_link("src/preprocessing/preprocesssing.ml"). This module also contains the function `preprocess`, which runs all of the preprocessing passes in order. This is called directly from `main` before running the analysis.
+
+Some of the preprocessing passes replace some expressions with special variables, namely `_nil` and `_const`. These are used to simplify the AST, instead of checking for multiple AST nodes such as a variable, a constant (zero), or cast of a constant into a pointer type (`NULL`), all expressions use only variables. `_nil` is used to represent a `NULL` pointer, whereas `_const` replaces any expression that cannot be analyzed, such as arithmetic expressions, or nondeterministic conditions. One other use of `_const` is that assignments into it are analyzed as "allocation check" of the assigned variable. For example, `_const = var;` is not interpreted as a literal assignment into the variable `_const`, but as a check that `var` is allocated. These assignments are created during preprocessing, when a field access to a non-pointer variable is found. For example, the following statement:
+
+```c
+int data = list->data;
+```
+
+will get converted to
+
+```c
+_const = list;
+```
+
+This will not cause any change to the state formulae during dataflow analysis, but each formula will be checked that the variable `list` is allocated.
 
 === Semantic Constant Propagation <const_prop>
 
-The only kind of condition the analysis is able to process are equalities and inequalities of variables. This turned out to be a problem in many of the SV-COMP benchmarks, because they often contained a variation of the following code:
+The only kind of condition the analysis is able to process are equalities and inequalities of variables. This turned out to be a problem in many of the SV-COMP benchmarks (for example in `c/list-simple/sll2c_update_all.c`), because they often contained a variation of the following code:
 
 ```c
 int len = 5;
@@ -255,11 +285,95 @@ As you can see, the first two iterations of the loop have been unrolled before t
 
 === Preprocessing of Conditions <conditions>
 
+Conditions are preprocessed in the following passes:
+
+- removing constant conditions -- this is done before the removal of all constants from the AST, and therefore conditions left by the SCF pass (see @const_prop) are still intact. Using the `remove_const_conditions` visitor in #plugin_link("src/preprocessing/preprocessing.ml"), all condition expressions that can be folded to a constant using `Cil.constFoldToInt` are evaluated and removed from the code, replacing the original `If` AST node with the `Block` node of the branch that would be executed.
+
+- removing the `!` operator -- using the visitor `remove_not_operator` in #plugin_link("src/preprocessing/preprocessing.ml"), the following replacements are made:
+  - negation of negation is replaced by the inner expression
+  - negation of equality is replaced by inequality
+  - negation of inequality is replaced by equality
+  These replacements are done because the evaluation of many macros in the SV-COMP programs creates exactly these structures, and simply removing them is easier than implementing the analysis to cover all of these.
+
+- splitting the condition expressions -- the expression inside the condition is split the same way as other expressions described in @stmt_split. This pass is implemented in #plugin_link("src/preprocessing/condition_split.ml"). This pass also converts implicit pointer comparisons to explicit ones. Specifically, these replacements are made:
+  - `(var)` is converted to `(var != _nil)`
+  - `(!var)` is converted to `(var == _nil)`
+  Conditions that cannot be preprocessed into a pointer comparison are replaced with the special constant `_const` instead. These are then considered nondeterministic during analysis.
+
+After these passes, all analyzable conditions have the form of an equality or an inequality of two pointer variables. All other conditions simply contain the constant `_const`.
+
+=== Splitting Complex Statements <stmt_split>
+
+To simplify the implementation of the transfer function in the dataflow analysis, it is convenient to only implement it for a small set of simple instructions. Other, complex instructions then have to be replaced by blocks of these simple instructions with the same semantics.
+
+These simple instructions are represented by the type `instr_type` in #plugin_link("src/preprocessing/instruction_type.ml"). These are the simple instructions:
+
+// TODO: zapsat jako typst rovnici? jakoze Type := | Simple (var, var) | LHS_field (var, field, var) | ...
+
+- assignment of a variable into a variable, eg. `var = var2;`
+- assignment of a variable's field dereference into a variable, eg. `var = var2->field;`
+- assignment of a variable into a dereferenced field of another variable, eg. `var->field = var2;`
+- assignment of a variable into a pointer dereference, eg. `*var = var2;`
+- assignment of a pointer dereference into a variable, eg. `var = *var2;`
+- assignment of a reference to a variable into a variable, eg. `var = &var2;`
+- function call with an optional assignment into a variable, with all arguments being variables. eg. `fun(var, var2);` or `var = fun(var2);`
+
+To split any supported instruction into a series of simple instructions, this pass must introduce new variables to hold temporary values. Because the analysis handles program and logic variables differently (see @program_and_logic_vars), it is more convenient to give these variables as short of a lifetime as possible. Each split statement is therefore replaced with a block that holds the necessary temporary variables.
+
+The preprocessing pass itself is implemented in #plugin_link("src/preprocessing/stmt_split.ml"), but the logic behind recursively splitting a single expression into a series of simple assignments, yielding a single variable, is implemented in #plugin_link("src/preprocessing/block_builder.ml"). This logic is also used by the preprocessing pass for conditions, see @conditions.
+
+The splitting itself is done by storing the result of every single dereference into a temporary variable, using the previously created temporary variables in the latter statements. For example, the following statement:
+
+```c
+var1->field1->field2 = (*var2)->field3;
+```
+
+will be split into this block:
+
+```c
+{
+  tmp1 = *var2;
+  tmp2 = tmp1->field3; // tmp2 contains the value of the assigned expression
+  tmp3 = var1->field1;
+  tmp3->field2 = tmp2;
+}
+```
+
+Note that it is not possible to extract the last l-value `tmp3->field2` into a temporary variable, and to assign the value of the expression into this variable, because that would not change the value in memory pointed to by the `tmp3` pointer.
+
 === Type Analysis <type_analysis>
 
-// As described in @astral_chapter, when introducing a variable into a formula, we need to provide a sort. This sort is derived from the type of the corresponding C variable. For types which form one of the supported kinds of lists (see @astral_chapter), a special predefined sort from `Astral` must be used, so that points-to atoms from these variables can later be abstracted to list atoms. For all other structure types, a new sort must be declared and registered in the solver instance. See @type_analysis for a detailed description.
+The purpose of the type analysis is to determine, which C types implement one of the supported list variants, and to store this information for later use. This analysis pass is implemented in #plugin_link("src/preprocessing/types.ml").
 
+The pass first iterates through all relevant types in the code and applies the following heuristic to determine if the type is one of the supported linked lists. The result of this heuristic is one of the following:
 
+- Singly linked list
+- Doubly linked list
+- Nested list
+- Generic struct
+
+First, all relevant fields of the structure are recursively analyzed to get their heuristic result. Then,
+
+- If the structure contains exactly one pointer to the structure itself and no pointers to structures marked as a singly linked list, it is itself marked as a singly linked list.
+- If the structure contains two pointers to itself and no pointers to singly linked lists, it is marked as a doubly linked list.
+- If the structure contains one pointer to itself and one pointer to a singly linked structure, it is marked as a nested list.
+- Otherwise, it is marked as a generic structure. A new sort and Astral struct definition is created for its fields.
+
+Then, each type is connected to its corresponding sort and struct definition in the `type_info` table. This is then used to retrieve sorts when adding new variables to formulae during analysis.
+
+This method of analysis has its drawbacks. First of all, not all implementations of supported linked lists will use one of these structures. For example, in SV-COMP benchmark #svcomp_link("c/forester-heap/sll-01-1.c"), the nested list structure is defined as follows:
+
+```c
+typedef struct TSLL
+{
+	struct TSLL* next;
+	struct TSLL* inner;
+} SLL;
+```
+
+During the program's runtime, the same structure is used to represent both the top-level list, and the nested sublists, which always set their `inner` field to NULL. Since this will be wrongly detected as a doubly linked list, the analysis will not be able to do abstraction on the generated formulae. Fixpoint for the list creation loop will not be found and the analysis will timeout.
+
+There are a few possible ways to fix this. One option would be to rely on the user to provide the correct list type and field types manually using Frama-C annotations. Another option might be to detect the correct list type dynamically during analysis, based on the shapes of the data structures that are appearing in the formulae.
 
 == Analysis
 
@@ -359,6 +473,8 @@ As you can see, the first two iterations of the loop have been unrolled before t
 = Conclusion
 
 == Future Work
+
+// better detection of list types -> acc to structures created during the analysis
 
 #pagebreak()
 
