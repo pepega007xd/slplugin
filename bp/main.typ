@@ -141,9 +141,88 @@ The analyzer is then tested on example programs that work with all supported typ
 
 == Formal Verification
 
-== Separation Logic
+== Separation Logic <sl_chapter>
 
-=== Astral Solver <astral_chapter>
+Separation logic (SL) @SL @SL2 is one of the most popular formalisms used for static analysis of programs that manipulate dynamically allocated memory. A formula of separation logic allows us to describe the program's heap so that models of such a formula, called _stack-heap models_, represent concrete structures of allocations and pointers between them. The main advantage of separation logic over other formalisms used for describing dynamic memory is the ability to describe disjoint parts of the heap using the _separating conjunction_ ($*$) operator. Another key component is a set of _inductive predicates_, which describe data structures of an unbounded size in a closed form.
+
+Due to the high expressivity of general separation logic, existing solvers usually focus on a certain subset of all SL formulae, called _fragments_. One of these fragments commonly used for static analysis is called the _symbolic heap_, but it has a limitation in the use of boolean connectives.
+
+The rest of this chapter describes a fragment of separation logic called _boolean separation logic_ as described in @astral, which, unlike other SL fragments, allows for a limited use of boolean operators -- conjunction, disjunction, and guarded negation ($phi and_not psi$). These are needed for the representation of lists with a non-zero minimum length, and for representing a state using a disjunction of multiple formulae.
+
+=== Syntax
+
+
+Variables in SL have a _sort_ representing the type of list the variable can be a part of. There are three predefined sorts, $SS$ for singly linked lists, $DD$ for doubly linked lists, and $NN$ for nested lists. We denote $x^SS$ as a variable of sort $SS$. Additional, generic sorts can be defined along with custom fields $upright(f_1), ..., upright(f_n)$ in its points-to predicate. In the grammar, this sort is denoted as $GG_n$. There is also a special variable nil without a sort.
+
+The syntax of SL formulae $phi$ is described by this grammar:
+
+$
+  p :=& x^SS |-> n\
+  & | x^DD |-> fields("n": n, "p": p)\
+  &| x^NN |-> fields("t": t, "n": n)\
+  &| x^(GG_n) |-> fields(upright(f_1) : f_1, ..., upright(f_n) : f_n) && "(points-to predicates)"\
+  i :=& "ls"(x^SS,y^SS) | "dls"(x^DD, y^DD, p^DD, n^DD) | "nls"(x^NN, y^NN, z^SS) #h(2em) && "(spatial predicates)"\
+  phi_A :=& x = y | x != y | freed(x) | emp | p | i && "(atomic formulae)"\
+  phi :=& phi_A | exists x. thick phi | phi * phi | phi and phi | phi or phi | phi gneg phi && "(formulae)"
+$
+
+=== Semantics
+
+#let Vars = [*Vars*]
+#let Locs = [*Locs*]
+#let Fields = [*Fields*]
+#let freedloc = sym.times.square
+#let domh = $"dom"(h)$
+
+Let #Vars be a set of variables, #Locs a set of locations, and #Fields a set of fields. As mentioned, the model of a SL formula is called a stack-heap model, denoted as a pair $(s,h)$. The _stack_ is a partial function $#Vars -> #Locs$, and the _heap_ is a partial function $#Locs -> (Fields -> Locs)$. The partial function $(Fields -> Locs)$ can be written as an enumeration of all fields and their corresponding locations, for example $h(ell) = fields(upright(f_1) : ell_1, upright(f_2): ell_2)$. Let #domh be the domain of the partial function $h$.
+
+The semantics of the special variable nil is that $nil in.not domh$. There is a special location $freedloc in #Locs$, used in the definition of the _freed_ predicate, its semantics are the same as for nil, $freedloc in.not domh$.
+
+With this, the semantics of boolean separation logic are defined as follows:
+
+$
+  &(s,h) entl x = y && "iff" s(x) = s(y) "and" domh = emptyset\
+  &(s,h) entl x != y && "iff" s(x) != s(y) "and" domh = emptyset\
+  &(s,h) entl freed(x) && "iff"  h = {s(x) |-> fields("n": freedloc) }\
+  &(s,h) entl emp && "iff" domh = emptyset\
+  &(s,h) entl x |-> fields(upright(f_1) : f_1, ..., upright(f_n) : f_n) #h(2em) && "iff" h = {s(x) |-> fields(upright(f_1) : f_1, ..., upright(f_n) : f_n)}\
+  & && #h(1em) "and" s(f_n) != freedloc "for each" n\
+  &(s,h) entl phi_1 and phi_2 && "iff" (s,h) entl phi_1 and (s,h) entl phi_2\
+  &(s,h) entl phi_1 or phi_2 && "iff" (s,h) entl phi_1 or (s,h) entl phi_2\
+  &(s,h) entl phi_1 gneg phi_2 && "iff" (s,h) entl phi_1 gneg (s,h) entl phi_2\
+  &(s,h) entl exists x . thick phi && "iff there is a location" ell "such that" (s[x |-> ell], h) entl phi\
+  &(s,h) entl ls(x, y) && "iff" (s,h) entl x = y, "or"\
+  & && #h(1em) s(x) != s(y) "and" (s,h) entl exists x'. thick x |-> x' * ls(x', y)\
+  &(s,h) entl dls(x, y, p, n) && "iff" (s,h) entl x = y * p = n, "or"\
+  & && #h(1em) s(x) != s(y), s(x') != s(y'), "and"\
+  & && #h(1em) (s,h) entl exists x'. thick x |-> fields("n": x', "p": p) * dls(x', y, x, n)\
+  &(s,h) entl nls(x, y, z) && "iff" (s,h) entl x = y, "or"\
+  & && #h(1em) s(x) != s(y) "and"\
+  & && #h(1em) (s,h) entl exists t', n'. thick x |-> fields("t": t', "n": n') * ls(n', z) * nls(t', y, z)\
+$
+
+The intuitive meaning behind the semantics is that:
+
+Equality and inequality of variables behaves as expected, but note that they require the heap to be empty. Therefore, separating conjunction is used to join all atomic formulae instead of regular conjunction. For example, a heap with one allocation will be described as $x |-> y * y = nil$. The formula $x |-> y and y = nil$ would be unsatisfiable, since the atom $y = nil$ describes an empty heap.
+
+The $freed(x)$ atom says that the variable $x$ is not allocated. It has been added for the purpose of this analysis to explicitly mark freed variables. The key property is that adding $freed(x)$ to a formula containing $x$ discards its models where $x$ aliases with another allocated variable. For example, the formula $x |-> y$ has two models, one where $x$ and $y$ are distinct variables and another where they alias:
+$ s = {x |-> ell_0, y |-> ell_1}, h = { ell_0 |-> fields("n": ell_1)} $
+$ s = {x |-> ell_0, y |-> ell_0}, h = { ell_0 |-> fields("n": ell_0)} $
+
+Changing the formula to $x |-> y * freed(y)$ removes the second model.
+
+The semantics of the points-to predicate and boolean atoms is as expected, note that the definition of the points-to predicate guarantees that no atom can explicitly point to the special location #freedloc. Otherwise, $x |-> y and freed(x)$ would have a model, where $s(y) = freedloc$.
+
+// TODO: mozna pridat grafovy obrazky modelu?
+
+The inductive predicates describe chains of pointers of an unbounded length:
+
+- $ls(x,y)$ describes a singly linked list of length zero or more. In the first case, the the list is equivalent to $x = y$. Length one is equivalent to a simple pointer $x |-> y * x != y$. All other models contain unnamed allocated memory locations in the chain between $s(x)$ and $s(y)$. Note that $y$ itself is not allocated in any model.
+
+- $dls(x, y, p, n)$ represents a doubly linked list of allocations. Unlike in the previous case, both $x$ and $y$ are allocated. The variables $p$ and $n$ represent the "p" and "n" field of the first and last allocation respectively. Similar to the singly linked list, the zero-length case is equivalent to $x = n * y = p$, and the length one is equivalent to a single points-to atom.
+
+// TODO: mozna vysvetlit ten hack s vyjadrovanim nls2+ uz tady?
+- $nls(x, y, z)$ describes a nested list. The top-level list leads through the "t" field from $x$ to $y$, but there is a sublist from each node's "n" field leading to $z$. The sublist itself is not a nested list, but a singly linked list. Just like the other lists, the list can be empty (equivalent to $x = y$), but note that even the case of length one contains a sublist of an unbounded length.
 
 == Frama-C <frama_c>
 
@@ -157,17 +236,17 @@ One of the functions of Frama-C is to help with the development of custom analys
 
 Besides a general framework for implementing analyses, Frama-C provides generic implementations of common algorithms used for static analysis. One of these is dataflow analysis, implemented in module `Dataflow2`. The purpose of dataflow analysis is to calculate all possible values of some kind for each node of the control flow graph (CFG) in the analyzed program. Nodes in a control flow graph correspond to statements in the original program, and directed edges represent all possible jumps between these statements.
 
-Dataflow analysis starts by assigning an initial state to each node of the CFG, and then progressively updates the values stored in nodes using a implementer-provided _transfer function_, following the edges between them. The transfer function takes the statement of the node, and the newly calculated state of the previous node, and produces a new state for the current node. In Frama-C, this function is called `doInstr`.
+Dataflow analysis starts by assigning an initial state to each node of the CFG, and then progressively updates the values stored in nodes using an implementer-provided _transfer function_, following the edges between them. The transfer function takes the statement of the node, and the newly calculated state of the previous node, and produces a new state for the current node. In Frama-C, this function is called `doInstr`.
 
 When a node is reached more than once, the data for this node is computed again based on the data from the previous node, and then joined with the previous data stored for the node. The function that joins the old state with the new state is also provided by the implementer. The name of this function in Frama-C is `combinePredecessors`.
 
 The implementer must also provide the following functions:
 
-- `doStmt` -- this function is called before calling the transfer function, it is given the statement itself. The implementer has the option to stop the analysis of this statement or continue normally.
+- `doStmt` -- this function is called before calling the transfer function, it receives the statement itself. The implementer has the option to stop the analysis of this statement or continue normally.
 - `doGuard` -- this function is called when an `if` statement is reached. It receives the state from the previous node and the condition expression, and generates two states, each to be used in one of the branches.
 - `doEdge` -- called between analyzing two statements. The function receives both statements, and the current state of the first statement. The function can modify this statebefore continuing with the transfer function of the second statement.
 
-Note that this list is not exhaustive, but the implementation of other function that must be provided for using the `Dataflow2` module is trivial and not relevant to the analysis itself.
+Note that this list is not exhaustive, but the implementation of other functions needed by the `Dataflow2` module is trivial and not relevant to the analysis itself.
 
 === Visitor mechanism <visitors>
 
@@ -207,15 +286,17 @@ At this point, the AST should ideally only contain analyzable AST nodes. However
 
 After this, all assignments into variables with irrelevant types are removed or replaced by a check that the dereferenced variable is allocated. After this pass, all _instructions_ (statements not affecting control flow) should be one of the basic instruction types defined in #plugin_link("src/preprocessing/instruction_type.ml").
 
-This is followed by a type analysis. As described in @astral_chapter, when introducing a variable into a formula, we need to provide a sort. This sort is derived from the type of the corresponding C variable. For types which form one of the supported kinds of lists (see @astral_chapter), a special predefined sort from Astral must be used, so that points-to atoms from these variables can later be abstracted to list atoms. For all other structure types, a new sort must be declared and registered in the solver instance. See @type_analysis for a detailed description.
+This is followed by a type analysis. As described in @sl_chapter, when introducing a variable into a formula, we need to provide a sort. This sort is derived from the type of the corresponding C variable. For types which form one of the supported kinds of lists (see @sl_chapter), a special predefined sort from Astral must be used, so that points-to atoms from these variables can later be abstracted to list atoms. For all other structure types, a new sort must be declared and registered in the solver instance. See @type_analysis for a detailed description.
 
 Lastly, a list of all variables containing a pointer to another variable on the stack is collected. This is used later in the analysis since dereferences of these variables need special handling compared to variables pointing to the heap.
 
 == Shape Analysis
 
-The analysis itself is implemented using the `Dataflow2` module provided by Frama-C (see @dataflow), and it is composed of these main parts. First, there is the transfer function implemented for the basic instructions described in @stmt_split. Then there are the simplifications applied to the formulae between instructions. There is also the logic for the join operation. Finally, there is the implementation of specializing formulae for each branch of a condition.
+The analysis itself is implemented using the `Dataflow2` module provided by Frama-C (see @dataflow), and it is composed of these main parts. First, there is the transfer function implemented for the basic instructions described in @stmt_split. Then there are the simplifications applied to the formulae between instructions. There is also the logic for the join operation. Finally, there is the specialization of formulae for each branch of a condition.
 
-The transfer functions accepts formulae of separation logic and changes them to reflect the state after executing the instruction.
+The analysis starts at the first statement of the `main` function, first assigning the
+
+The transfer function takes formulae describing the state before executing an instruction and changes them to reflect the state after the execution.
 
 = Implementation Details
 
@@ -361,7 +442,7 @@ First, all relevant fields of the structure are recursively analyzed to get thei
 
 Then, each type is connected to its corresponding sort and struct definition in the `type_info` table. This is then used to retrieve sorts when adding new variables to formulae during analysis.
 
-This method of analysis has its drawbacks. First of all, not all implementations of supported linked lists will use one of these structures. For example, in SV-COMP benchmark #svcomp_link("c/forester-heap/sll-01-1.c"), the nested list structure is defined as follows:
+This method of analysis has a drawback. Not all implementations of supported linked lists will use one of these structures. For example, in SV-COMP benchmark #svcomp_link("c/forester-heap/sll-01-1.c"), the nested list structure is defined as follows:
 
 ```c
 typedef struct TSLL
@@ -475,6 +556,8 @@ There are a few possible ways to fix this. One option would be to rely on the us
 == Future Work
 
 // better detection of list types -> acc to structures created during the analysis
+
+// use freed(x!0) to represent newly allocated memory?
 
 #pagebreak()
 
