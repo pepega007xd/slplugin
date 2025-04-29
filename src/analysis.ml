@@ -23,7 +23,9 @@ let doInstr _ (instr : instr) (prev_state : t) : t =
     match Instruction_type.get_instr_type instr with
     (* assignment into "_const" is used to check if rhs is allocated *)
     | Assign_simple (lhs, rhs) when lhs.vname = Constants.const_var_name ->
-        List.iter (Formula.assert_allocated (var rhs)) prev_state;
+        prev_state
+        |> List.concat_map (Formula.materialize (var rhs))
+        |> List.iter (Formula.assert_allocated (var rhs));
         prev_state
     | Assign_simple (lhs, rhs) ->
         prev_state |> List.map (Transfer.assign (var lhs) (var rhs))
