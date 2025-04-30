@@ -20,13 +20,12 @@ let assign_lhs_deref (lhs : Formula.var) (rhs : Formula.var)
 (** transfer function for [var = var->field;] *)
 let assign_rhs_field (lhs : Formula.var) (rhs : Formula.var)
     (rhs_field : Types.field_type) (formula : Formula.t) : Formula.t =
-  let rhs_var =
+  let rhs_target =
     Formula.get_spatial_target rhs rhs_field formula |> function
     | Some rhs -> rhs
     | None -> raise @@ Formula.Invalid_deref (rhs, formula)
   in
-  if lhs = rhs_var then formula
-  else formula |> Formula.substitute_by_fresh lhs |> Formula.add_eq lhs rhs_var
+  if lhs = rhs_target then formula else assign lhs rhs_target formula
 
 (** transfer function for [var->field = var;] *)
 let assign_lhs_field (lhs : Formula.var) (lhs_field : Types.field_type)
