@@ -50,11 +50,7 @@ let doInstr _ (instr : instr) (prev_state : t) : t =
     | Assign_deref_lhs (lhs, rhs) ->
         prev_state |> List.map (Transfer.assign_lhs_deref (var lhs) (var rhs))
     | Assign_ref (lhs, rhs) ->
-        List.map
-          (Formula.add_atom
-             (Formula.PointsTo
-                (var lhs, Generic [ (Constants.ptr_field_name, var rhs) ])))
-          prev_state
+        List.map (Transfer.assign_ref (var lhs) (var rhs)) prev_state
     | Call (lhs_opt, func, params) ->
         prev_state
         |> List.concat_map
