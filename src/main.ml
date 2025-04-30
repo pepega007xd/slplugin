@@ -39,6 +39,8 @@ let main () =
     when not !Analysis.nondet_condition_reached ->
       Common.warning "Invalid_free: var '%a' in formula '%a'" SL.Variable.pp var
         Formula.pp_formula formula
+  | Formula.Invalid_deref _ | Formula.Invalid_free _ ->
+      Common.warning "unknown result"
   | e ->
       if Config.Catch_exceptions.get () then (
         let backtrace = Printexc.get_backtrace () in
