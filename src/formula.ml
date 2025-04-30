@@ -155,13 +155,12 @@ let to_astral (f : t) : SL.t =
         let next = v nls.next in
         let nls_0 = SL_builtins.mk_nls first ~sink:top ~bottom:next in
         let nls_1 = SL.mk_star [ nls_0; SL.mk_distinct2 first top ] in
-        let first_next_var = mk_fresh_var_from nls.next in
+        let first_next_var = SL.Variable.mk_fresh "next" Sort.loc_ls in
         let first_next = v first_next_var in
         match nls.min_len with
         | 0 -> nls_0
         | 1 -> nls_1
         | _ ->
-            (* TODO: does this make sense? *)
             SL.mk_gneg nls_1
             @@ SL.mk_exists [ first_next_var ]
                  (SL.mk_star
