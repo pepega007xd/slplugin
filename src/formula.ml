@@ -240,12 +240,14 @@ let swap_vars (var1 : var) (var2 : var) (f : t) =
   |> substitute ~var:var2 ~by:var1
   |> substitute ~var:tmp_name ~by:var2
 
-let standardize_fresh_var_names (f : t) : t =
+let standardize_fresh_var_names ?(start_from : int = 0) (f : t) : t =
   let vars = get_fresh_vars f |> List.sort_uniq SL.Variable.compare in
   let names =
     List.mapi
       (fun idx var ->
-        SL.Variable.mk ("!" ^ string_of_int idx) (SL.Variable.get_sort var))
+        SL.Variable.mk
+          ("!" ^ string_of_int (idx + start_from))
+          (SL.Variable.get_sort var))
       vars
   in
   List.fold_left2 (fun f var by -> substitute ~var ~by f) f vars names
@@ -589,7 +591,7 @@ let canonicalize (f : t) : t =
        | Distinct (lhs, rhs) ->
            if c lhs rhs > 0 then Distinct (lhs, rhs) else Distinct (rhs, lhs)
        | c -> c)
-  |> List.sort_uniq compare
+  |> List.sort_uniq compare |> standardize_fresh_var_names
 
 let canonicalize_state (state : state) : state =
   state |> List.map canonicalize |> List.sort_uniq compare
