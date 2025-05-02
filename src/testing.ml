@@ -108,4 +108,9 @@ module Tests = struct
     let pto = SL.mk_pto_struct src_var struct_def [] in
     let solver = Solver.init () |> Solver.set_heap_sort heap_sort in
     Solver.check_sat solver pto
+
+  let%test "reachability split" =
+    let input = [ mk_ls x y 1; mk_ls y z 2; mk_ls z x' 2 ] in
+    let result = split_by_reachability [ x ] input |> fst in
+    assert_eq result input
 end

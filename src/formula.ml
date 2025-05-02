@@ -562,6 +562,7 @@ let split_by_reachability (vars : var list) (f : t) : t * t =
       (function
         | Distinct (lhs, rhs) ->
             List.mem lhs reachable_vars && List.mem rhs reachable_vars
+        | Freed var -> List.mem var reachable_vars
         | _ -> false)
       rest
   in

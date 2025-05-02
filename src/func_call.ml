@@ -27,12 +27,8 @@ let previous_results : (Cil_types.stmt, Formula.state) Hashtbl.t list ref =
   ref []
 
 let get_anchor (var : Formula.var) : Formula.var =
-  let name = SL.Variable.get_name var in
-  SL.Variable.mk
-    (* '$' is used not to collide with an existing var name, eg. x!0 -> x_0,
-       it has no special meaning, x$0 behaves like a regular program variable *)
-    ("A_" ^ String.map (function '!' -> '$' | c -> c) name)
-    (SL.Variable.get_sort var)
+  let name = "A_" ^ SL.Variable.get_name var in
+  SL.Variable.mk name (SL.Variable.get_sort var)
 
 let run_analysis (func : Kernel_function.t) (formula : Formula.t) :
     Formula.state =
@@ -91,10 +87,6 @@ let func_call (args : Formula.var list) (func : varinfo) (formula : Formula.t)
   in
 
   let reachable, unreachable = Formula.split_by_reachability args formula in
-  let reachable_vars =
-    reachable |> Formula.get_fresh_vars
-    |> List.filter (fun var -> Formula.is_spatial_target var unreachable)
-  in
 
   let rename_anchors (formula : Formula.t) =
     List.fold_left2
@@ -103,15 +95,8 @@ let func_call (args : Formula.var list) (func : varinfo) (formula : Formula.t)
       formula params args
   in
 
-  let remove_anchors (formula : Formula.t) =
-    List.fold_left
-      (fun formula var ->
-        Formula.substitute ~var:(get_anchor var) ~by:var formula)
-      formula reachable_vars
-  in
-
   let convert_back_result (result : Formula.t) =
-    let result = (result |> rename_anchors |> remove_anchors) @ unreachable in
+    let result = rename_anchors result @ unreachable in
 
     (match lhs_opt with
     | Some lhs ->
@@ -141,13 +126,6 @@ let func_call (args : Formula.var list) (func : varinfo) (formula : Formula.t)
         (* substitute argument names with parameter names *)
         |> Formula.substitute ~var:arg ~by:param)
       reachable params args
-  in
-
-  (* add anchors for variables reachable from the unreachable part of formula *)
-  let reachable =
-    List.fold_left
-      (fun formula var -> Formula.add_eq var (get_anchor var) formula)
-      reachable reachable_vars
   in
 
   let result_state = get_result_state func reachable in
