@@ -4,6 +4,14 @@
   show math.equation: set text(weight: 400)
   set heading(numbering: "1.1")
   set par(justify: true)
+  show table.cell.where(y: 0): strong
+  set table(
+    stroke: (x, y) => if y == 0 {
+      (bottom: 0.7pt + black)
+    },
+  )
+  // merges citations into one block: [1], [2] -> [1, 2]
+  set cite(style: "springer-basic")
 
   body
 }
@@ -21,9 +29,24 @@
 
 #let gneg = $ and_not $
 
-#let ls(x, y) = $"ls"(#x, #y)$
-#let dls(x, y, p, n) = $"dls"(#x, #y, #p, #n)$
-#let nls(x, y, z) = $"nls"(#x, #y, #z)$
+#let ls(bound: none, x, y) = if bound == none {
+  $"ls"(#x, #y)$
+} else {
+  $"ls"_(#bound+)(#x, #y)$
+}
+
+#let dls(bound: none, x, y, p, n) = if bound == none {
+  $"dls"(#x, #y, #p, #n)$
+} else {
+  $"dls"_(#bound+)(#x, #y, #p, #n)$
+}
+
+#let nls(bound: none, x, y, z) = if bound == none {
+  $"nls"(#x, #y, #z)$
+} else {
+  $"nls"_(#bound+)(#x, #y, #z)$
+}
+
 #let freed(x) = $"freed"(#x)$
 
 #let fields(..x) = $angle.l #(x.pos().join(", ")) angle.r$
@@ -32,3 +55,6 @@
 
 #let nil = "nil"
 #let emp = "emp"
+
+#let f0 = $f'_0$
+#let f1 = $f'_1$
