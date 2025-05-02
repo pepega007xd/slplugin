@@ -152,7 +152,7 @@ The rest of this chapter describes a fragment of separation logic called _boolea
 === Syntax
 
 
-Variables in SL have a _sort_ representing the type of list the variable can be a part of. There are three predefined sorts, $SS$ for singly linked lists, $DD$ for doubly linked lists, and $NN$ for nested lists. We denote $x^SS$ as a variable of sort $SS$. Additional, generic sorts can be defined along with custom fields $upright(f_1), ..., upright(f_n)$ in its points-to predicate. In the grammar, this sort is denoted as $GG_n$. There is also a special variable nil without a sort.
+Variables in SL have a _sort_ representing the type of list the variable can be a part of. There are three predefined sorts, $SS$ for singly linked lists (SLS), $DD$ for doubly linked lists (DLS), and $NN$ for nested lists (NLS). We denote $x^SS$ as a variable of sort $SS$. Additional, generic sorts can be defined along with custom fields $upright(f_1), ..., upright(f_n)$ in its points-to predicate. In the grammar, this sort is denoted as $GG_n$. There is also a special variable nil without a sort.
 
 The syntax of SL formulae $phi$ is described by this grammar:
 
@@ -165,6 +165,8 @@ $
   phi_A :=& x = y | x != y | freed(x) | emp | p | i && "(atomic formulae)"\
   phi :=& phi_A | exists x. thick phi | phi * phi | phi and phi | phi or phi | phi gneg phi && "(formulae)"
 $
+
+We write $phi[b\/a]$ for the formula $phi$ in which all occurences of $a$ are replaced by $b$.
 
 === Semantics
 
@@ -194,7 +196,7 @@ $
   &(s,h) entl ls(x, y) && "iff" (s,h) entl x = y, "or"\
   & && #h(1em) s(x) != s(y) "and" (s,h) entl exists x'. thick x |-> x' * ls(x', y)\
   &(s,h) entl dls(x, y, p, n) && "iff" (s,h) entl x = y * p = n, "or"\
-  & && #h(1em) s(x) != s(y), s(x') != s(y'), "and"\
+  & && #h(1em) s(x) != s(y), s(p) != s(n), s(p) in.not domh, "and"\
   & && #h(1em) (s,h) entl exists x'. thick x |-> fields("n": x', "p": p) * dls(x', y, x, n)\
   &(s,h) entl nls(x, y, z) && "iff" (s,h) entl x = y, "or"\
   & && #h(1em) s(x) != s(y) "and"\
@@ -280,7 +282,7 @@ The analysis itself consists of multiple steps. First, the analyzed program is p
 
 == Preprocessing
 
-The preprocessing consists of an external semantic constant propagation pass along with loop unrolling, followed by multiple custom passes over the AST. This external preprocessing is described in @const_prop. First, all AST nodes not relevant for the analysis are removed. This includes arithmetic and binary operations, type casts, integer comparison operations, and others. Then, variable initialization is replaced by simple assignments. Next, function call arguments with types irrelevant to the analysis are removed.
+The preprocessing consists of an external semantic constant propagation pass along with loop unrolling, followed by multiple custom passes over the AST. This external preprocessing is described in @const_prop. First, all AST nodes not relevant for the analysis are removed. This includes arithmetic and binary operations, type casts, integer comparison operations, and others. Then, variable initialization is replaced by simple assignments. Next, function call arguments with types irrelevant to the analysis are removed. _Relevant types_ are described in @type_analysis.
 
 At this point, the AST should ideally only contain analyzable AST nodes. However, to simplify the implementation of the dataflow analysis, it is necessary to also split expressions in assignments, function call arguments, and conditions into a series of elementary assignments. Each complex statement is replaced by a block, containing temporary variables to which parts of the original expression are assigned. This is described in detail in @stmt_split.
 
@@ -292,21 +294,55 @@ Lastly, a list of all variables containing a pointer to another variable on the 
 
 == Shape Analysis
 
+The analysis starts at the first statement of the `main` function, first assigning the formula $emp$ to the first statement, and then running the analysis from this point. The formulae used by the analysis are not actually represented by the types provided by Astral, but using a custom, flattened formula type that is simpler to work with. The details are described in @formulae.
+
+Variables in formulae have two variants, _program variables_ and _logic variables_. Program variables directly correspond to C variables currently in scope by having the same name. Logic variables correspond to memory locations which currently have no name in the analyzed program. In SL formulae, they are existentially quantified. More on this in @join_operation. In this text, we refer to logic variables as $f'_n$.
+
 The analysis itself is implemented using the `Dataflow2` module provided by Frama-C (see @dataflow), and it is composed of these main parts. First, there is the transfer function implemented for the basic instructions described in @stmt_split. Then there are the simplifications applied to the formulae between instructions. There is also the logic for the join operation. Finally, there is the specialization of formulae for each branch of a condition.
 
-The analysis starts at the first statement of the `main` function, first assigning the
+=== Transfer Function
 
-The transfer function takes formulae describing the state before executing an instruction and changes them to reflect the state after the execution.
+The transfer function takes formulae describing the state before executing an instruction and changes them to reflect the state after the execution. The transfer function always processes the input formulae one by one, applying the operation described below to each input formula (here called $phi$) separately. The transfer function is implemented for each of the 7 basic instructions:
+
+- Assignment into the special `_const` variable `_const = a;` means that the formula is not changed, but $a$ is checked to be allocated. If not, an invalid dereference is reported. This corresponds to accesses to non-pointer fields in the original source code, see @vars_preprocessing for more details.
+
+- For simple assignment `a = b;`, the resulting formula is $phi[f0\/b] * a = b$ where #f0 is a new logic variable. The renaming is done because the memory location originally referred to by $b$ still has to be represented in the formula.
+
+- For an assignment with a field access on the right-hand side `a = b->f;`, the variable $b$ is first materialized in the formula, and then the target of $b$ at field $f$ is found (here called $t_b$). Then a regular assignment is done with $t_b$ as the assigned variable. The resulting formula is $phi[f'_0\/a] * a = t_b$.
+
+- When processing an assignment to a field `a->f = b;`, $a$ is first materialized, then the points-to atom from $a$ is found and its field $f$ is changed to $b$. No substitution is done in this case because we are not overwriting the value of any variable.
+
+- `a = *b;` is processed the same way as `a = b->f;`, except the "field" being dereferenced has a special name `_target`. Pointers to pointers are represented as pointers to structs with a single field `_target`.
+
+- Since pointers to pointers are assumed to be allocated on the stack, `*a = b;` is interpreted as an assignment of $b$ into the variable pointed to by $a$. The target of $a$, called $t_a$ is found , and the formula is transformed as a regular assignment of $b$ into it. After that, the points-to atom from $a$ is changed to $a |-> fields("_target": t_a)$ (it was affected by the renaming done during the assignment).
+
+- `a = &b;` is processed differently based on whether $a$ is already allocated (there is a points-to atom from $a$ already in the formula). If so, its `_target` field is simply set to $b$. If not, this atom is added. This is done to prevent adding a second points-to atom from $a$, which would make the formula unsatisfiable.
+
+The remaining instruction is a function call. If the function is from the allocation API (`malloc`, `calloc`, and `free`), it is handled differently than a user-defined function.
+
+- processing `a = malloc(size);` yields two formulae, one representing the successful allocation with the fields set to new logic variables: $phi * a |-> fields("f"_0: f0, "f"_1: f1, ...)$, the other one representing an allocation failure: $phi * a = nil$.
+
+- `a = calloc(size);` is handled the same as `malloc`, except all fields of the allocated points-to are set to nil instead of new logic variables.
+
+- `free(a);` is handled by materializing $a$ and then removing the points-to atom starting at $a$.
+
+All other functions are handled by explicitly by splitting the formula to two parts by reachability from the function arguments, and then running the dataflow analysis recursively on the function, using the reachable subformula as the initial state. The resulting state of analyzing the function is taken from its return statement. To improve the performance, a cache of _function summaries_ is used, the input to the cache is the function name and a modified initial state, the output is a modified output state. The details of implementing this are in @summaries.
+
+=== Simplifications
+
+=== Join Operation <join_operation>
+
+=== Condition Evaluation
 
 = Implementation Details
-
-== Program and Logic Variables <program_and_logic_vars>
 
 == Preprocessing
 
 // collecting stack allocated vars?
 
 This chapter describes the details of AST preprocessing done externally by Frama-C and internally using the Cil Visitor mechanism (see @visitors). Many of the simple preprocessing passes are implemented directly in #plugin_link("src/preprocessing/preprocesssing.ml"). This module also contains the function `preprocess`, which runs all of the preprocessing passes in order. This is called directly from `main` before running the analysis.
+
+=== Preprocessing of variables <vars_preprocessing>
 
 Some of the preprocessing passes replace some expressions with special variables, namely `_nil` and `_const`. These are used to simplify the AST, instead of checking for multiple AST nodes such as a variable, a constant (zero), or cast of a constant into a pointer type (`NULL`), all expressions use only variables. `_nil` is used to represent a `NULL` pointer, whereas `_const` replaces any expression that cannot be analyzed, such as arithmetic expressions, or nondeterministic conditions. One other use of `_const` is that assignments into it are analyzed as "allocation check" of the assigned variable. For example, `_const = var;` is not interpreted as a literal assignment into the variable `_const`, but as a check that `var` is allocated. These assignments are created during preprocessing, when a field access to a non-pointer variable is found. For example, the following statement:
 
@@ -399,7 +435,7 @@ These simple instructions are represented by the type `instr_type` in #plugin_li
 - assignment of a reference to a variable into a variable, eg. `var = &var2;`
 - function call with an optional assignment into a variable, with all arguments being variables. eg. `fun(var, var2);` or `var = fun(var2);`
 
-To split any supported instruction into a series of simple instructions, this pass must introduce new variables to hold temporary values. Because the analysis handles program and logic variables differently (see @program_and_logic_vars), it is more convenient to give these variables as short of a lifetime as possible. Each split statement is therefore replaced with a block that holds the necessary temporary variables.
+To split any supported instruction into a series of simple instructions, this pass must introduce new variables to hold temporary values. Because the analysis handles program and logic variables differently (see @formulae), it is more convenient to give these variables as short of a lifetime as possible. Each split statement is therefore replaced with a block that holds the necessary temporary variables.
 
 The preprocessing pass itself is implemented in #plugin_link("src/preprocessing/stmt_split.ml"), but the logic behind recursively splitting a single expression into a series of simple assignments, yielding a single variable, is implemented in #plugin_link("src/preprocessing/block_builder.ml"). This logic is also used by the preprocessing pass for conditions, see @conditions.
 
@@ -426,6 +462,8 @@ Note that it is not possible to extract the last l-value `tmp3->field2` into a t
 
 The purpose of the type analysis is to determine, which C types implement one of the supported list variants, and to store this information for later use. This analysis pass is implemented in #plugin_link("src/preprocessing/types.ml").
 
+The only _relevant types_ for the analysis are pointers to structures (`struct X *`). Pointers to these pointers (`struct X **`, `struct X ***`, etc.) are also supported, but only as pointers to variables on the stack. This is a limitation given only by the current implementation, as the support for pointers to variables on the stack was added late during development because many SV-COMP tests relied on this feature. However, SV-COMP does not contain any tests where pointers to pointers are allocated on the heap, so there was little reason to work on this specific feature over others.
+
 The pass first iterates through all relevant types in the code and applies the following heuristic to determine if the type is one of the supported linked lists. The result of this heuristic is one of the following:
 
 - Singly linked list
@@ -438,9 +476,9 @@ First, all relevant fields of the structure are recursively analyzed to get thei
 - If the structure contains exactly one pointer to the structure itself and no pointers to structures marked as a singly linked list, it is itself marked as a singly linked list.
 - If the structure contains two pointers to itself and no pointers to singly linked lists, it is marked as a doubly linked list.
 - If the structure contains one pointer to itself and one pointer to a singly linked structure, it is marked as a nested list.
-- Otherwise, it is marked as a generic structure. A new sort and Astral struct definition is created for its fields.
+- Otherwise, it is marked as a generic structure. A new sort and Astral struct definition is created.
 
-Then, each type is connected to its corresponding sort and struct definition in the `type_info` table. This is then used to retrieve sorts when adding new variables to formulae during analysis.
+Then, each type is connected to its corresponding sort and struct definition in the `type_info` table. The struct definition contains the names and sorts of all fields in the structure.
 
 This method of analysis has a drawback. Not all implementations of supported linked lists will use one of these structures. For example, in SV-COMP benchmark #svcomp_link("c/forester-heap/sll-01-1.c"), the nested list structure is defined as follows:
 
@@ -460,11 +498,146 @@ There are a few possible ways to fix this. One option would be to rely on the us
 
 // describe order of calls doStmt, doInstr, doEdge, combinePredecessors, doGuard
 
-== Representation of SL Formulae
+== Representation of SL Formulae <formulae>
 
 // formula.ml
 // program/fresh variables
 // conversion to astral
+
+The type used to represent formulae in Astral has a tree structure that requires pattern matching to access every term. This makes sense for a solver that needs to support formulae of all shapes on its input, but for the purpose of this analysis, we need a flattened representation of the exact shape of formulae we use. This will avoid having to pattern match terms for which we already know the type, and it will allow us to define shorthands for predicates which have to be expressed by a more complex structure in Astral's type. The formula type along with a series of functions for manipulating these formulae are implemented in #plugin_link("src/formula.ml").
+
+The type itself is defined as follows:
+
+```ocaml
+type var = SL.Variable.t
+type ls = { first : var; next : var; min_len : int }
+type dls = { first : var; last : var; prev : var; next : var; min_len : int }
+type nls = { first : var; top : var; next : var; min_len : int }
+
+type pto_target =
+  | LS_t of var
+  | DLS_t of var * var
+  | NLS_t of var * var
+  | Generic of (string * var) list
+
+type atom =
+  | Eq of var list
+  | Distinct of var * var
+  | Freed of var
+  | PointsTo of var * pto_target
+  | LS of ls
+  | DLS of dls
+  | NLS of nls
+
+type formula = atom list
+
+type state = formula list
+```
+
+State (type used by the dataflow module to represent the analysis state in each CFG node) is a list of formulae, and each formula is a list of atoms. `atom` is an enumeration of the predicates used by the analysis.
+
+Variables used by the formulae are represented using the original Astral type. Program variables have the same name as their corresponding C variables, logic variables are distinguished by having names that contain the character `!`. When adding a logic variable to a formula, we need to give it a fresh name that does not appear anywhere in the formula. This is handled by Astral using `Variable.mk_fresh base_name sort`, which holds a counter of usages of each name, and adds a unique number `n` to the name in the form of `base_name!n`. Therefore, it was convenient to use the `!` character for distinguishing logic variables.
+
+=== Spatial atoms
+
+`PointsTo` represents all variants of points-to predicates. Because we need to distinguish between pointers of the three basic list types and all other pointers, the target(s) of the pointer are represented in a separate structure `pto_target`, with the three basic list variants, and a `Generic` variant which simply associates field names with variables.
+
+List predicates are represented using three atoms, with a _length bound_ `min_len` indicating the minimum length of the list predicate. For singly linked lists, the maximum valid bound is 2+, and for doubly linked lists it is 3+. This is given by the limitations of encoding list predicates into Astral formulae, see @conversion_to_astral.
+
+
+The modules also provides functions for manipulating spatial atoms, such as getting, changing, and changing the target of a points-to atom, checking that a variable is allocated in the formula, or converting points-to atoms to lists. To represent the type of field of a points-to atom, a `field_type` defined in type is used. It is defined in #plugin_link("src/preprocessing/types.ml") in the following way:
+
+```ocaml
+type field_type = Next | Prev | Top | Other of string | Data
+```
+
+The `Other` variant is used for representing arbitrary fields using their name.
+
+Another operation implemented for formulae is _materialization_ of a variable inside a formula. This operation unrolls a single points-to predicate from a list predicate, so that subsequent operations can work with the points-to atom directly. By definition, it asserts that the materialized variable is allocated. Materialization involves adding a logic variable serving as the new start of the list predicate. When materialization is done on a variable that is already a source of a points-to atom, the formula is returned unchanged.
+
+The function `materialize` is implemented recursively and returns a list of formulae, since materialization can produce more than one formula. When materializing a list with length bound 1+ or more, the length bound is simply decremented, and the points-to atom is added to the formula. When the list atom has the length bound 0+, a case split is performed:
+- either the list had a minimum length at least one, in this case the length bound is incremented and `materialize` is called recursively using this modified formula,
+- or the list atom had length zero, in this case it is replaced with an equality and `materialize` is called recursively.
+
+Results of evaluating both cases are then concatenated and returned as a list of materialized formulae.
+
+For example, materializing the variable $x$ in $ls(bound: 2, x, y)$ yields a single formula $x |-> f0 * ls(bound: 1, f0, y)$. Materializing $x$ in $ls(bound: 0, x, y) * ls(bound: 1, y, z)$ yields a list of two formulae:
+
+$
+  x |-> f0 * ls(bound: 0, f0, y) * ls(bound: 1, f0, y)\
+  x = y * x |-> f0 * ls(bound: 0, f0, z)
+$
+
+The first formula represents the case where the list $ls(bound: 0, x, y)$ had length of at least one, the second represents the case of the list being empty. Note that materialization also handles explicitly making $x$ the source of the points-to atom.
+
+Materialization of DLS variables is done similarly, with the difference that DLS lists can be materialized from any side. In $dls(x,y,p,n)$, either $x$ or $y$ can be materialized. During the materialization in NLS lists, an additional logic variable representing the start of the SLS sublist is introduced. For example, materializing $x$ in $nls(bound: 1, x, y, z)$ yields
+
+$ x |-> fields("t": f0, "n": f1) * ls(f1, z) * nls(bound: 0, f0, y, z) $
+
+where #f1 is the additional SLS variable.
+
+=== Equality and Inequality
+
+`Eq` represents a list of variables that form an equivalence class. Equivalences in formulae are not handled arbitrarily as pairs of equivalent variables, but a minimal list of disjoint equivalence classes is maintained throughout the analysis. When adding a new equivalence into a formula, the `add_eq lhs rhs` function is used. This function first checks if any of the newly equivalent variables is present in any of the existing equivalent classes, then:
+
+- if both variables are already in a single equivalence class, nothing happens
+- if both variables are in different equivalence classes, these classes are merged into one
+- if just one variable is in an existing equivalence class, the other variable is added into it
+- else, a new equivalence class with the two variables is added into the formula
+
+`Ne` represents the inequality of two variables. Unlike equality, there is no need to represent a list of variables all distinct from each other. Nonetheless, there is a function `add_distinct lhs rhs` for adding distincts with special behavior. If there is a list atom in the formula with its source and destination equivalent to `lhs` and `rhs` of the inequality, the length bound of the list is increased to reflect this instead of adding an explicit inequality. Specifically,
+
+- if $x != y$ is added to $ls(bound: 0, x, y)$, it becomes $ls(bound: 1, x, y)$
+- if $x != n$ or $y = p$ is added to $dls(bound: 0, x, y, p, n)$, it becomes $dls(bound: 1, x, y, p, n)$
+- if $x != y$ is added to $dls(bound: 0, x, y, p, n)$ or $dls(bound: 1, x, y, p, n)$, it becomes $dls(bound: 2, x, y, p, n)$
+- if $x != y$ is added to $nls(bound: 0, x, y, z)$, it becomes $nls(bound: 1, x, y, z)$
+
+This comes from the fact that all zero-length list predicates require the source and the target to be equal, by adding this inequality we essentially restrict the possible cases to those, where the list has length at least one. Similarly, in the third case, if the first and last allocated locations in a DLS differ, the list must have length at least two.
+
+The reason for doing this is to prevent false detections of invalid dereferences when analyzing code that asserts a list to be nonempty using a condition, and then accesses this list. For example, consider the following code:
+
+```c
+list = construct_list();
+if (list != NULL) {
+  list->data = 42;
+}
+```
+
+The state after the call to `construct_list` might be $ls(bound: 0, "list", nil)$. When analyzing condition, the inequality $"list" != nil$ will be added. If we simply added the inequality atom to the formula, we would detect a possible invalid dereference at the assignment. The code checking that a variable is allocated simply materializes the variable and checks that there is a spatial atom with its source equivalent to said variable. This check would fail for the formula $ls(bound: 0, "list", nil) * "list" != nil$. Increasing the bound on the list predicate solves this issue.
+
+=== Translation to Astral Types <conversion_to_astral>
+
+The translation of equality, inequality and `freed` atoms to the types of Astral's formulae is trivial, as is the translation of points-to atoms of the three predefined list types. These atoms have builtin constructors in Astral's modules `SL` and `SL_builtins`. Translating points-to atoms with sorts defined at runtime involves adding a struct definition for the variable's sort created during type analysis (see @type_analysis).
+
+Translating list predicates involves expressing the length bounds implicitly, because Astral does not have a way to explicitly set the minimum length of a list predicate. Therefore, only $ls(bound: 0, x, y)$, $dls(bound: 0, x, y, p, n)$ and $nls(bound: 0, x, y, z)$ are translated directly to their corresponding list predicates in Astral's types. The rest is translated according to the following table:
+
+#table(
+  columns: 2,
+  column-gutter: 2em,
+  row-gutter: 1em,
+  align: horizon,
+  table.header(
+    "Our formula",
+    "Astral formula",
+  ),
+
+  $ls(bound: 1, x, y)$, $ls(x, y) * x != y$,
+  $ls(bound: 2, x, y)$, $(ls(x, y) * x != y) gneg (x |-> y)$,
+  $dls(bound: 1, x, y, p, n)$, $dls(x, y, p, n) * x != n$,
+  $dls(bound: 2, x, y, p, n)$, $dls(x, y, p, n) * x != n * x != y$,
+  $dls(bound: 3, x, y, p, n)$,
+  $(dls(x, y, p, n) * x != n * x != y)\
+    #h(5em) gneg\
+    (x |-> fields("p": p, "n": y) * y |-> fields("p": x, "n": n))$,
+
+  $nls(bound: 1, x, y, z)$, $nls(x, y, z) * x != y$,
+  $nls(bound: 2, x, y, z)$,
+  $(nls(x, y, z) * x != y)\
+    #h(5em) gneg\
+    (exists f0. thick x |-> fields("t": y, "n": f0) * ls(f0, z))$,
+)
+
+The idea behind this translation is to force the list to be non-empty by adding an inequality for the 1+ cases, and explicitly discard the length one model using guarded negation ($gneg$) for the 2+ cases. Note that translating $nls(bound: 2, x, y, z)$ requires adding new logic variable #f0 existentially quantified _under_ the negation. If it was placed before the negation, the meaning would be different -- negation changes existential quantifiers to universal and vice versa.
 
 == Abstraction
 
@@ -500,7 +673,7 @@ There are a few possible ways to fix this. One option would be to rely on the us
 // deduplicate formulas semantically *)
 // deduplicate_states
 
-== Function Summaries
+== Interprocedural Analysis <summaries>
 
 // mention anchor vars
 
@@ -550,6 +723,10 @@ There are a few possible ways to fix this. One option would be to rely on the us
 // maybe create a simple meaningful program and show that it can be analyzed -> postfix expr calculator?
 
 == SV-COMP Benchmarks
+
+== Astral Queries
+
+// measure how much time is spent evaluating formulae in astral
 
 = Conclusion
 
