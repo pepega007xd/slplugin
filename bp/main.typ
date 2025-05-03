@@ -14,7 +14,7 @@
 
 #stack(
   // TODO: adjust after finalizing abstracts
-  spacing: 10%,
+  spacing: 1fr,
   [
     #heading(numbering: none)[Abstract]
 
@@ -326,7 +326,7 @@ The remaining instruction is a function call. If the function is from the alloca
 
 - `free(a);` is handled by materializing $a$ and then removing the points-to atom starting at $a$.
 
-All other functions are handled by explicitly by splitting the formula to two parts by reachability from the function arguments, and then running the dataflow analysis recursively on the function, using the reachable subformula as the initial state. The resulting state of analyzing the function is taken from its return statement. To improve the performance, a cache of _function summaries_ is used, the input to the cache is the function name and a modified initial state, the output is a modified output state. The details of implementing this are in @summaries.
+All other functions are handled by explicitly by splitting the formula to two parts by reachability from the function arguments, and then running the dataflow analysis recursively on the function, using the reachable subformula as the initial state. The resulting state of analyzing the function is taken from its return statement. To improve the performance, a cache of _function summaries_ is used, the input to the cache is a modified initial state, the output is a modified output state. The details of implementing this are in @summaries.
 
 === Simplifications
 
@@ -675,13 +675,58 @@ The idea behind this translation is to force the list to be non-empty by adding 
 
 == Interprocedural Analysis <summaries>
 
-// mention anchor vars
+The analysis of a function call is implemented in #plugin_link("src/func_call.ml") and consists of multiple steps.
+
+=== Reachability Split
+
+First, the input formula is split to two subformulae by reachability from the function arguments. The reachable subformula is found by first finding all reachable spatial atoms. The algorithm starts with a single variable and finds the spatial atom leading from it. This atom is added to the set of reachable atoms, and the algorithm continues recursively with all targets of the spatial atom. This algorithm is ran for each of the argument variables.
+
+After this, the set of all reachable variables is collected from the reachable spatials. The arguments themselves and nil are also included in this set. All equivalence classes are then filtered so that only reachable variables remain. Finally, inequalities are filtered so that only those in which both variables are reachable remain. Similarly, freed atoms are filtered.
+
+The reachable subformula is a merge of reachable spatials, filtered equivalence classes, and filtered inequalities and freed atoms. The unreachable subformula is then composed of all atoms of the original formula not present in the reachable subformula.
+
+This is done to simplify the analysis of the called function as much as possible by not including irrelevant atoms and variables in the formulae. It also increases the efficiency of the summaries cache because the cache input does not contain irrelevant data that would prevent cache hits with slightly different input formulae.
+
+=== Anchor Variables
+
+After extracting the reachable subformula, it is necessary to rename variables in the formula from argument names to parameter names. However, simply renaming the variables on function entry and then back on function return would also change the values of variables _after_ the call, for example:
+
+```c
+void set_to_null(List *x) {
+  x = NULL;
+  return;
+}
+
+...
+
+a = allocate();
+set_to_null(a);
+assert(a != NULL); // "a" would be overwritten
+```
+
+For this reason, _anchor variables_ are added to the input formula before the renaming. Anchor variables are treated as regular program variables, otherwise simplifications might remove them from the formula. In the case of the program above, assuming the input formula is $ls(bound: 1, a, nil)$, the anchor variable $A_a$ will first be added as equal to $a$, and then $a$ will be renamed to the parameter name $x$. The resulting formula will then be $ls(bound: 1, x, nil) * x = A_a$.
+
+After the analysis of the function, we will get the formula $ls(bound: 1, f0, nil) * f0 = A_a * x = nil$, in which the $A_a$ anchor will be renamed back to $a$, yielding the original formula $ls(bound: 1, a, nil)$ along with atoms that will be removed by subsequent simplification passes.
+
+=== Function Summaries and Function Analysis
+
+To avoid recomputing the analysis of a function call every time that the function is reached, a cache of _function summaries_ is maintained. A function summary is the mapping of an input formula to an output state. Input to the cache is a pair of the called function and the processed input formula after adding anchor variables and renaming arguements to parameters. Caching cannot be done on the original input formula, because arguemnt names will differ in different call sites. The conversion of the output state will assure that a summary created at one call site will be valid at any other call site.
+
+If a summary is not found in the cache, the analysis of the function begins. Unfortunately, the implementation of dataflow analysis in Frama-C does not directly support interprocedural analysis, so we must manually backup the analysis context of the current function, and create a new context for the called function. This context consists of one hashmap for the analysis results and a second hashmap for storing the number of loop iterations (see @underapproximation_mode for more details). The context is represented by the type `function_context` in a global variable.
+
+After creating the new context, the inital state for the first statement in the called function is set to the modified input formula, and the analysis is started on this statement. After the analysis finishes, the result state is read out from the result hashmap, and the original context is restored.
+
+The result state must be processed before it is returned from the transfer function, each formula of the state is processed separately. First, the anchor variables are renamed back to the original argument names, then the unreachable subformula is added back to the resulting formula. After this, if the call instruction assigns the call result to a variable, the variable returned by the `return` statement from within the called function is assigned to the result variable. Frama-C preprocesses all functions to have a single `return` statement with a simple variable as the returned expression.
+
+Finally, all points-to atoms representing pointers to variables on the stack created inside the function are removed, and then all program variables from inside the function are subsitituted with logic variables, to be removed by the subsequent simplification passes. Formulae processed this way are returned from the transfer function.
 
 == Join
 
 // mention different sorting variants of formulae in [deduplicate_state]
 
 == Reference Operator
+
+== Underapproximation Mode <underapproximation_mode>
 
 // implementation
 // removing references when going out of scope
