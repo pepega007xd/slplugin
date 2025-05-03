@@ -52,13 +52,11 @@ let run_analysis (func : Kernel_function.t) (formula : Formula.t) :
 
 let get_result_state (func : Kernel_function.t) (formula : Formula.t) :
     Formula.state =
-  (* TODO: maybe canonicalize formula before creating a summary? *)
-  let summary_input = Formula.standardize_fresh_var_names formula in
-  Hashtbl.find_opt summaries (func, summary_input) |> function
+  Hashtbl.find_opt summaries (func, formula) |> function
   | Some result -> result
   | None ->
       let result_state = run_analysis func formula in
-      Hashtbl.add summaries (func, summary_input) result_state;
+      Hashtbl.add summaries (func, formula) result_state;
       result_state
 
 let func_call (args : Formula.var list) (func : varinfo) (formula : Formula.t)
@@ -104,10 +102,7 @@ let func_call (args : Formula.var list) (func : varinfo) (formula : Formula.t)
           match return_stmt.skind with
           | Return (Some { enode = Lval (Var var, NoOffset); _ }, _) ->
               SL.Variable.mk var.vname (SL.Variable.get_sort lhs)
-          | _ ->
-              fail
-                "function which is supposed to return something does not have \
-                 a return value"
+          | _ -> assert false
         in
         result
         |> Formula.substitute_by_fresh lhs
