@@ -212,18 +212,15 @@ let doEdge (prev_stmt : stmt) (next_stmt : stmt) (state : t) : t =
       end_of_scope_locals
   in
 
-  let do_abstraction (state : t) : t =
-    state
-    |> List.map Abstraction.convert_to_ls
-    |> List.map Abstraction.convert_to_dls
-    |> List.map Abstraction.convert_to_nls
-  in
-
-  let do_abstraction : t -> t =
+  let do_abstraction (formula : Formula.t) : Formula.t =
     match next_stmt.skind with
-    | _ when Config.Edge_abstraction.get () -> do_abstraction
-    | Loop _ -> do_abstraction
-    | _ -> Fun.id
+    | _ when Config.Edge_abstraction.get () ->
+        formula |> Abstraction.convert_to_ls |> Abstraction.convert_to_dls
+        |> Abstraction.convert_to_nls
+    | Loop _ ->
+        formula |> Abstraction.convert_to_ls |> Abstraction.convert_to_dls
+        |> Abstraction.convert_to_nls
+    | _ -> formula
   in
 
   let deduplicate_states : t -> t =
@@ -233,18 +230,13 @@ let doEdge (prev_stmt : stmt) (next_stmt : stmt) (state : t) : t =
   let open Simplification in
   let modified =
     state
-    |> List.filter Astral_query.check_sat
     |> List.map (remove_ptos_from_vars end_of_scope_stack_vars)
     |> List.map (convert_vars_to_fresh end_of_scope_locals)
     |> List.map remove_leaks
     |> List.map reduce_equiv_classes
-    |> do_abstraction
+    |> List.map do_abstraction
     |> List.map remove_irrelevant_vars
-    |> List.map remove_single_eq
     |> List.map remove_empty_lists
-    |> List.map (Formula.remove_spatial_from Formula.nil)
-    (* deduplicate atoms syntactically *)
-    |> List.map (List.sort_uniq compare)
     |> Formula.canonicalize_state
     |> Common.list_map_pairs generalize_similar_formulas
     (* deduplicate formulas syntactically *)

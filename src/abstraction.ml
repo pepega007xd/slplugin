@@ -5,11 +5,13 @@ let is_unique_fresh (var : Formula.var) (formula : Formula.t) : bool =
 
 let is_in_formula (src : Formula.var) (dst : Formula.var)
     (field : Types.field_type) (formula : Formula.t) : bool =
-  Formula.get_spatial_atom_from_first_opt src formula
-  |> Option.map (fun atom ->
-         Formula.get_target_of_atom field atom |> fun atom_dst ->
-         Formula.is_eq atom_dst dst formula)
-  |> Option.value ~default:false
+  Formula.get_spatial_atom_from_first_opt src formula |> function
+  | Some atom ->
+      Formula.get_target_of_atom field atom |> fun atom_dst ->
+      Formula.is_eq atom_dst dst formula
+  | None -> false
+
+(** LS abstraction *)
 
 let convert_to_ls (formula : Formula.t) : Formula.t =
   let atom_to_ls (atom : Formula.atom) : Formula.ls option =
@@ -43,6 +45,8 @@ let convert_to_ls (formula : Formula.t) : Formula.t =
   in
 
   formula |> List.filter_map atom_to_ls |> List.fold_left do_abstraction formula
+
+(** DLS abstraction *)
 
 let convert_to_dls (formula : Formula.t) : Formula.t =
   let atom_to_dls (atom : Formula.atom) : Formula.dls option =
@@ -91,35 +95,56 @@ let convert_to_dls (formula : Formula.t) : Formula.t =
   |> List.filter_map atom_to_dls
   |> List.fold_left do_abstraction formula
 
+(** NLS abstraction *)
+
+(* returns modified formula and new [next] var if join succeeded *)
+let join_sublists (lhs_source : Formula.var) (rhs_source : Formula.var)
+    (formula : Formula.t) : (Formula.t * Formula.var) option =
+  let lhs = Formula.get_spatial_atom_from lhs_source formula in
+  let rhs = Formula.get_spatial_atom_from rhs_source formula in
+
+  let lhs_next = Formula.get_target_of_atom Types.Next lhs in
+  let rhs_next = Formula.get_target_of_atom Types.Next rhs in
+
+  let lhs_target = Formula.get_spatial_target lhs_next Types.Next formula in
+  let rhs_target = Formula.get_spatial_target rhs_next Types.Next formula in
+
+  let ( = ) x y = Formula.is_eq x y formula in
+  let uf x = is_unique_fresh x formula in
+
+  match (lhs, rhs, lhs_target, rhs_target) with
+  (* pto + pto can both have sublists *)
+  | PointsTo _, PointsTo _, _, _ when lhs_next = rhs_next ->
+      Some (formula, lhs_next)
+  | PointsTo _, PointsTo _, Some lhs_target, _
+    when lhs_target = rhs_next && uf lhs_next ->
+      Some (Formula.remove_spatial_from lhs_next formula, lhs_target)
+  | PointsTo _, PointsTo _, Some lhs_target, Some rhs_target
+    when lhs_target = rhs_target && uf lhs_next && uf rhs_next ->
+      Some
+        ( Formula.remove_spatial_from lhs_next formula
+          |> Formula.remove_spatial_from rhs_next,
+          lhs_target )
+  (* list + pto -- only pto can have a sublist *)
+  | NLS _, PointsTo _, _, _ when lhs_next = rhs_next -> Some (formula, lhs_next)
+  | NLS _, PointsTo _, _, Some rhs_target
+    when lhs_next = rhs_target && uf rhs_next ->
+      Some (Formula.remove_spatial_from rhs_next formula, lhs_next)
+  (* list + list -- next fields must match directly *)
+  | NLS _, NLS _, _, _ when lhs_next = rhs_next -> Some (formula, lhs_next)
+  | _ -> None
+
+(* try both directions *)
+let join_sublists (lhs_source : Formula.var) (rhs_source : Formula.var)
+    (formula : Formula.t) : (Formula.t * Formula.var) option =
+  join_sublists lhs_source rhs_source formula |> function
+  | Some res -> Some res
+  | None -> join_sublists rhs_source lhs_source formula
+
 let convert_to_nls (formula : Formula.t) : Formula.t =
   let atom_to_nls (atom : Formula.atom) : Formula.nls option =
     atom |> Formula.pto_to_list |> function
     | Formula.NLS nls -> Some nls
-    | _ -> None
-  in
-
-  (* returns modified formula and new [next] var if join succeeded *)
-  let join_sublists (lhs : Formula.var) (rhs : Formula.var)
-      (formula : Formula.t) : (Formula.t * Formula.var) option =
-    let lhs_target = Formula.get_spatial_target lhs Types.Next formula in
-    let rhs_target = Formula.get_spatial_target rhs Types.Next formula in
-    match (lhs, rhs, lhs_target, rhs_target) with
-    | lhs, rhs, _, _ when Formula.is_eq lhs rhs formula -> Some (formula, lhs)
-    | lhs, rhs, _, Some rhs_t
-      when Formula.is_eq lhs rhs_t formula && is_unique_fresh rhs formula ->
-        Some (formula |> Formula.remove_spatial_from rhs, lhs)
-    | lhs, rhs, Some lhs_t, _
-      when Formula.is_eq lhs_t rhs formula && is_unique_fresh lhs formula ->
-        Some (formula |> Formula.remove_spatial_from lhs, lhs_t)
-    | lhs, rhs, Some lhs_t, Some rhs_t
-      when Formula.is_eq lhs_t rhs_t formula
-           && is_unique_fresh lhs formula
-           && is_unique_fresh rhs formula ->
-        Some
-          ( formula
-            |> Formula.remove_spatial_from lhs
-            |> Formula.remove_spatial_from rhs,
-            lhs_t )
     | _ -> None
   in
 
@@ -140,7 +165,7 @@ let convert_to_nls (formula : Formula.t) : Formula.t =
            && Astral_query.check_inequality first_nls.first second_nls.top
                 formula -> (
         (* common variable `next` must lead to the same target *)
-        match join_sublists first_nls.next second_nls.next formula with
+        match join_sublists first_nls.first second_nls.first formula with
         | Some (formula, next) ->
             let min_length = min 2 (first_nls.min_len + second_nls.min_len) in
             formula

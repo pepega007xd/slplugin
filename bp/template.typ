@@ -13,6 +13,9 @@
   // merges citations into one block: [1], [2] -> [1, 2]
   set cite(style: "springer-basic")
 
+  // do not break lines after "a"
+  show " a ": [ a~]
+
   body
 }
 
@@ -58,3 +61,4 @@
 
 #let f0 = $f'_0$
 #let f1 = $f'_1$
+#let f2 = $f'_2$

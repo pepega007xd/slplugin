@@ -591,7 +591,7 @@ let canonicalize (f : t) : t =
        | Eq vars -> Eq (List.sort_uniq c vars)
        | Distinct (lhs, rhs) ->
            if c lhs rhs > 0 then Distinct (lhs, rhs) else Distinct (rhs, lhs)
-       | c -> c)
+       | atom -> atom)
   |> List.sort_uniq compare |> standardize_fresh_var_names
 
 let canonicalize_state (state : state) : state =

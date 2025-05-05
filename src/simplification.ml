@@ -33,6 +33,8 @@ let reduce_equiv_classes (formula : Formula.t) : Formula.t =
   (* remove multiple occurences of a single variable 
      in an equiv class created by a substitution *)
   |> Formula.map_equiv_classes @@ List.sort_uniq SL.Variable.compare
+  (* filter out equivalence classes reduced to <2 members *)
+  |> List.filter (function Formula.Eq ([] | [ _ ]) -> false | _ -> true)
 
 let remove_irrelevant_vars (formula : Formula.t) : Formula.t =
   let is_relevant_var (var : Formula.var) : bool =
@@ -73,15 +75,6 @@ let remove_leaks (formula : Formula.t) : Formula.t =
           Self.warning ~current:true "leak of atom %a" Formula.pp_atom atom)
       junk_atoms;
     valid_atoms)
-
-let remove_single_eq (formula : Formula.t) : Formula.t =
-  let to_remove =
-    formula |> Formula.get_equiv_classes
-    |> List.filter (fun eq_class -> List.length eq_class < 2)
-  in
-  List.fold_left
-    (fun formula eq_class -> Formula.remove_equiv_class eq_class formula)
-    formula to_remove
 
 let convert_vars_to_fresh (vars : Formula.var list) (formula : Formula.t) :
     Formula.t =
