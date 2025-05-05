@@ -330,6 +330,32 @@ All other functions are handled by explicitly by splitting the formula to two pa
 
 === Simplifications
 
+Between analyzing instructions, the state formulae are simplified and abstracted to ensure the termination of the analysis. The full description of some of these simplifications is done in @simplifications. The following simplifications are applied in this order:
+
+// |> List.map (remove_ptos_from_vars end_of_scope_stack_vars)
+// |> List.map (convert_vars_to_fresh end_of_scope_locals)
+// |> List.map remove_leaks
+// |> List.map reduce_equiv_classes
+// |> List.map do_abstraction
+// |> List.map remove_irrelevant_vars
+// |> List.map remove_empty_lists
+// |> Formula.canonicalize_state
+// |> Common.list_map_pairs generalize_similar_formulas
+// |> List.sort_uniq compare
+// |> deduplicate_states
+
+// TODO: mozna nechat jenom zajimavy simplifikace, a technikality jako odstranovani points-to na stack nechat na impl detaily?
+- Program variables going out of scope by the transition between instructions are substituted with logic variables.
+- Points-to atoms representing pointers to variables going out of scope are removed.
+- Spatial atoms unreachable from program variables are removed and reported as memory leaks.
+- Logic variables equivalent to program variables are removed from the formula by substituting them with these program variables.
+- Chains of spatial predicates are abstracted to list predicates. This step ensures the analysis of loops will terminate. More on this in @abstraction.
+- Inequalities and freed atoms containing logic variables only present in these atoms are removed. These atoms do not hold any information useful for the analysis.
+- List atoms known to be empty are removed or replaced with equivalences. These are the products of previous simplifications and must be removed to not accumulate meaningless atoms in formulae. List atoms are assumed to be empty when the start and the end of the list are syntactically equivalent in the formula.
+- The formulae are canonicalized, which involves sorting variables in equivalence classes, and sorting atoms in variables. This is done to make the next steps more likely to succeed.
+- Formulae that differ only in the length bound of a single spatial atom are merged, taking the lower bound of the two as the new bound. Points-to atoms are treated as lists with the length bound set to one for this simplification.
+- Formulae are deduplicated by syntactical comparison, and then semantically using the procedure described in @join_operation.
+
 === Join Operation <join_operation>
 
 === Condition Evaluation
@@ -494,10 +520,6 @@ During the program's runtime, the same structure is used to represent both the t
 
 There are a few possible ways to fix this. One option would be to rely on the user to provide the correct list type and field types manually using Frama-C annotations. Another option might be to detect the correct list type dynamically during analysis, based on the shapes of the data structures that are appearing in the formulae.
 
-== Analysis
-
-// describe order of calls doStmt, doInstr, doEdge, combinePredecessors, doGuard
-
 == Representation of SL Formulae <formulae>
 
 // formula.ml
@@ -639,40 +661,6 @@ Translating list predicates involves expressing the length bounds implicitly, be
 
 The idea behind this translation is to force the list to be non-empty by adding an inequality for the 1+ cases, and explicitly discard the length one model using guarded negation ($gneg$) for the 2+ cases. Note that translating $nls(bound: 2, x, y, z)$ requires adding new logic variable #f0 existentially quantified _under_ the negation. If it was placed before the negation, the meaning would be different -- negation changes existential quantifiers to universal and vice versa.
 
-== Abstraction
-
-// describe the algorithm, possible improvements (configurable bounds)
-
-== Simplification
-
-// removing out of scope vars
-// removing leaked spatial atoms
-// removing unneeded fresh vars (substitution with nil/program vars)
-// removing irrelevant fresh vars (distinct/freed only)
-// removing single eq, empty lists
-// canonicalization, fresh var names
-// generalization of formulae (single atom bound difference)
-
-// List.filter Astral_query.check_sat
-// List.map (remove_ptos_from_vars end_of_scope_stack_vars)
-// List.map (convert_vars_to_fresh end_of_scope_locals)
-// List.map remove_leaks
-// List.map reduce_equiv_classes
-// do_abstraction
-// List.map remove_irrelevant_vars
-// List.map remove_single_eq
-// List.map remove_empty_lists
-// List.map (Formula.remove_spatial_from Formula.nil)
-// deduplicate atoms syntactically *)
-// List.map (List.sort_uniq compare)
-// Formula.canonicalize_state
-// List.map Formula.standardize_fresh_var_names
-// Common.list_map_pairs generalize_similar_formulas
-// deduplicate formulas syntactically *)
-// List.sort_uniq compare
-// deduplicate formulas semantically *)
-// deduplicate_states
-
 == Interprocedural Analysis <summaries>
 
 The analysis of a function call is implemented in #plugin_link("src/func_call.ml") and consists of multiple steps.
@@ -720,11 +708,164 @@ The result state must be processed before it is returned from the transfer funct
 
 Finally, all points-to atoms representing pointers to variables on the stack created inside the function are removed, and then all program variables from inside the function are subsitituted with logic variables, to be removed by the subsequent simplification passes. Formulae processed this way are returned from the transfer function.
 
+== Simplifications <simplifications>
+
+// |> List.map (remove_ptos_from_vars end_of_scope_stack_vars)
+// |> List.map (convert_vars_to_fresh end_of_scope_locals)
+// |> List.map remove_leaks
+// |> List.map reduce_equiv_classes
+// |> do_abstraction
+// |> List.map remove_irrelevant_vars
+// |> List.map remove_empty_lists
+// |> Formula.canonicalize_state
+// |> Common.list_map_pairs generalize_similar_formulas
+// |> List.sort_uniq compare
+// |> deduplicate_states
+
+// TODO: mozna rozdelit do podkapitol?
+
+Most of the simplification passes are implemented in #plugin_link("src/simplification.ml") and called from the `doEdge` function inside #plugin_link("src/analysis.ml").
+
+Substitution of program variables going out of scope by logic variables is done to enable the abstraction to work. Abstraction can only remove logic variables from the formula, so if variables created withing loops were not turned to logic variables at the end of the loop body, it would never have the option to introduce list predicates into the formula. As an example, consider the following code:
+
+```c
+List *a = allocate_node();
+while (rand()) {
+  List *b = allocate_node();
+  a->next = b;
+  b->next = NULL;
+}
+```
+
+The formula describing the state at the end of the first loop iteration might be $a |-> b * b |-> nil$. Because the variable $b$ is going out of scope at the end of the loop body, the formula will be simplified to $a |-> f0 * f0 |-> nil$, which will enable the abstraction to $ls(bound: 2, a, nil)$ before the analysis returns to the start of the loop.
+
+Spatial atoms starting at a logic variable are removed if the logic variable does not appear in any other spatial or equality atom. It can appear in distinct atoms, because inequalities do not make the logic variable reachable from any program variable in the formula. The removal of a spatial atom is reported as a memory leak, except when removing a list with the length bound of zero. These are not reported because it would cause false detections of memory leaks. For example, when unrolling a nested list, an SLS atom with the length bound zero is added, no matter the original sublist length.
+
+Removing logic variables in equivalence classes is done by first filtering out equivalence classes with less than two variables. Then, in each equivalence class, a substitution target variable is found according to the following rules in order:
+- If the equivalence class contains nil, it is used as the substitution target.
+- If the equivalence class contains a program variable, it is used.
+- Otherwise, a logic variable is used.
+
+All logic variables are then substituted with this subsitution target. After this, all equivalence classes are deduplicated, getting rid of the variables duplicated during substitution. Finally, equivalence classes with less than two variables are again removed.
+
+Formula canonicalization is done in these steps:
+- All variables of the formula are collected and sorted, and then explicitly set as the source of spatial atoms. Variables that are not a source of any spatial atom are skipped.
+- Variables in equivalence classes and inequalities are sorted.
+- Atoms in the formula are sorted.
+- All logic variables in the formula are in order renamed to a sequence of names with the form `!0`, `!1`, `!2`, ...
+
+This is certainly not an ideal way to canonicalize formulae, but it proved sufficient for the next step to work.
+
+Generalization of similar formulae is done only when two formulae differ in the length bound of a single spatial atom. This comparison is run for every pair of formulae in the state. If it succeeds, the pair is replaced with the generalized formula, otherwise it is left unchanged. The length bound in the generaized formula is the smaller of the original two. If two formulae differ in a single atom and one of the differing atoms is a points-to atom, it is converted to a list atom with the length bound of one. If the generalization fails, this change is not propagated to the original state. This simplification solves the common problem where an allocation loop produces multiple formulae describing different lengths of a list.
+
+```c
+a = NULL;
+while (rand()) {
+  alloc_node(&a);
+}
+```
+
+This analysis might produce the following state after the loop:
+
+$
+  a = nil \
+  a |-> nil\
+  ls(bound: 2, a, nil)
+$
+
+This generalization will merge the latter formulae into one:
+
+$
+  a = nil \
+  ls(bound: 1, a, nil)
+$
+
+This generalization could be extended to turn the resulting state into $ls(bound: 0, a, nil)$ that would cover all cases, but it would require a more complex method than to just compare a single pair of differing atoms, because the equality of $a$ and nil could exist inside a larger equivalence class.
+
+== Abstraction <abstraction>
+
+// describe the algorithm, possible improvements (configurable bounds)
+The abstraction operates on each formula of the state separately, the abstraction of each list type is done in a separate pass. In general, the point of abstracting chains of points-to predicates into list predicates is to create invariants for loops. Consider the following code:
+
+```c
+a = alloc_node();
+b = a;
+
+while (rand()) {
+  b->next = alloc_node();
+  b = b->next;
+}
+```
+
+If there was no abstraction in place, the analysis would generate longer and longer points-to chains forever:
+
+// TODO: mozna odebrat zarovnani?
+$
+  a |-> nil &* a = b\
+  a |-> b &* b |-> nil\
+  a |-> f0 &* f0 |-> b &&* b |-> nil\
+  a |-> f0 &* f0 |-> f1 &&* f1 |-> b * b |-> nil\
+  \
+  dots.c
+$
+
+#let abstr = $ls(bound:2, a, b) * b |-> nil$
+
+The abstraction will instead turn the third formula into #abstr, which will abstract over all possible lengths of the points-to chain that would otherwise be generated. This formula (along with the first two generated formulae) will serve as the fixpoint for this loop (state that is valid in every iteration of the loop). This is because all possible lengths of the points-to chain have models that together make the set of models of the abstracted formula:
+
+$
+  a |-> f0 &* f0 |-> b &&* b |-> nil &entl abstr\
+  a |-> f0 &* f0 |-> f1 &&* f1 |-> b * b |-> nil &entl abstr\
+  a |-> f0 &* f0 |-> f1 &&* f1 |-> f2 * f2 |-> b * b |-> nil #h(2em) &entl abstr\
+  \
+  dots.c
+$
+
+=== Singly Linked Lists
+
+Abstraction of SLS lists is done by iterating through all spatial atoms with the appropriate sort, and trying to find a second spatial atom starting at the end of the first one. Points-to atoms are again treated as list atoms with length bound equal to one. For example, when processing $ls(bound: 0, x, y)$, the algorithm would look for a spatial stom starting at $y$. If found, the following conditions must be met to proceed with the abstraction:
+
+- The middle variable must be a logic variable not reachable from the rest of the formula. Joining $ls(bound: 0, x, y)$ and $ls(bound: 1, y, z)$ would loses information about the variable $y$. Reachability is checked simply by counting the occurenes of the variable in all spatial and equivalence atoms.
+
+- The source variable of the first list must be distinct from the target variable of the second list. In the previous example, this would mean ensuring that $x != z$. This is done using the solver, by adding an equality of the two variables into the formula and checking satisfiability. If the formula is satisfiable, the variables are not distinct and the abstraction cannot be done, because the predicate $ls(x, y)$ describes an _acyclic_ chain of pointers.
+
+If the conditions are met, the two atoms are replaced with a single list atom of length $min(l_1 + l_2, 2)$ where $l_1$ and $l_2$ are the lengths of the original lists. For example: $x |-> f0 * ls(bound: 1, f0, nil)$ will be abstracted to $ls(bound: 2, x, nil)$.
+
+=== Doubly Linked Lists
+
+The abstraction of DLS lists is done similarly, except the conditions needed for abstraction are slightly different. For abstracting $dls(bound: 2, x, f0, nil, f1) * dls(bound: 2, f1, y, f0, nil)$ into $ dls(bound: 3, x, y, nil, nil)$, the following conditions must hold:
+
+- Either the first and the last allocated variable of both atoms must be the same (that signifies the lists have length at most one), or the last allocated variable of the first list (#f0) and the first allocated variable of the second list (#f1) must be logic variables unreachable from the rest of the formula, like in the SLS case.
+
+- The "p" field of the second list must point back to the last allocated variable of the first list.
+
+- The "p" and "n" fields of the first allocated variable of the first list and the last allocated variable of the last list respectively cannot point back into the list
+
+- Like in the SLS case, the list must not be cyclic -- this is checked using the solver both forward and backward.
+
+The length bound of the joined list will be $min(l_1 + l_2, 3)$, because we have a way to translate DLS lists with minimum length of three.
+
+=== Nested Lists
+
+
+NLS lists are abstracted similarly to SLS lists, except that an additional check must be done that the SLS sublists end up in the same variable. SLS abstraction is run first, so we can expect the sublists to be abstracted into a single list atom. The algorithm for joining two NLS atoms differs based on the type of atom:
+
+When joining two points-to atoms, $x |-> fields("t": f0, "n": f1) * f0 |-> fields("t": y, "n": f2) $, the following options are tried in order:
+- if #f1 is equal to #f2, the atoms are joined as-is into $nls(bound: 2, x, y, f1)$
+- if the formula contains $ls(f1, z)$ and $z$ is equal to #f2, the sublist from #f1 is removed and the atoms are joined into $nls(bound: 2, x, y, z)$
+- if the formula contains $ls(f1, z_1) * ls(f2, z_2)$ and $z_1$ is equal to $z_2$, the sublists from #f1 and #f2 are removed and the atoms are joined into $nls(bound: 2, x, y, z_1)$
+
+When joining a list atom $nls(x, f0, z) * f0 |-> fields("t": y, "n": f1)$, these options are tried in order:
+- if $z$ is equal to #f1, the atoms are joined as-is into $nls(x, y, z)$
+- if the formula contains $ls(f1, f2)$ and $f2$ is equal to $z$, the sublist from #f1 is removed and the atoms are joined into $nls(x, y, z)$
+
+The only way to join two list atoms $nls(x, f0, z_1) * nls(f0, y, z_2)$ into $nls(x, y, z)$ is when $z_1$ and $z_2$ are already equal.
+
+All equivalences are checked syntactically. All variables at the start of the deleted sublists must be logic variables unreachable from the rest of the formula. The reason for checking this many options instead of just looking for sublists everywhere is that an $nls(x, y, z)$ atom already contains sublists leading to $z$. For example, it is not possible to join $nls(x, f0, f1) * ls(f1, z) * f0 |-> fields("t": y, "n": z)$ into $nls(x, y, z)$ because that would violate the semantics of the NLS atom, in that all sublists leading into $z$ must be disjoint.
+
 == Join
 
 // mention different sorting variants of formulae in [deduplicate_state]
-
-== Reference Operator
 
 == Underapproximation Mode <underapproximation_mode>
 
