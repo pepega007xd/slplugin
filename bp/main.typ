@@ -123,7 +123,7 @@ I would like to thank my supervisor Ing. Tomáš Dacík and my advisor prof. Ing
 There are two basic approaches to memory management in programming languages. One approach relies on a garbage collector to reclaim unreachable allocated memory automatically. The other, manual memory management, relies on the programmer to allocate and free memory explicitly. Some languages that rely on manual memory management allow for a group of bugs, called memory safety bugs, to occur. These contain _use-after-free_ -- access to freed memory, other kinds of invalid pointer dereferences, _double-free_ -- deallocating already freed memory, or _memory leaks_ -- a loss of reference to an allocation. These bugs are often a source of security vulnerabilities in affected programs, since invalid memory accesses are considered undefined behavior in C and C++.
 
 // TODO: add examples? valgrind, asan, fuzzing? static analysis in detail in Current Approaches
-There is a number of techniques to find these bugs and ensure memory safety of programs. One approach is testing and dynamic analysis, often by code instrumentation done by the compiler. Another approach is static analysis and formal verification. Formal verification is a collection of methods to prove correctness of a program, or to prove a specific property of a program. In this case, the property is memory safety, i.e. that every memory access in the program is valid and memory de/allocation is done correctly.
+There is a number of techniques to find these bugs and ensure memory safety of programs. One approach is testing and dynamic analysis, often by code instrumentation done by the compiler. Another approach is static analysis and formal verification. Formal verification is a collection of methods to prove correctness of a program, or to prove a specific property of a program. In this case, the property is memory safety, i. e. that every memory access in the program is valid and memory de/allocation is done correctly.
 
 One of the approaches to static analysis is so-called _dataflow analysis_, which relies on traversing the control flow graph (CFG) of a program and tracking all possible values of variables in the program. In this context, the information we are interested in are the values of pointers, and the data structures in the program's heap.
 
@@ -358,7 +358,27 @@ Between analyzing instructions, the state formulae are simplified and abstracted
 
 === Join Operation <join_operation>
 
+#let old = $phi_"old"$
+#let new = $phi_"new"$
+#let out = $phi_"out"$
+
+When the analysis reaches a statement for the second or subsequent times, there is already a state associated with the statement. A new state is generated using the transfer function as usual, and then these states are joined to produce either a new state to be stored for the statement, or information that the original state covers the new state. By covering, we mean that all models of the new state are already included in the models of the original state. In another words, it must hold that $new entl old$.
+
+As an optimization, this entailment is not evaluated as-is, but is broken into a series of smaller entailments. Because the evaluation of satisfiability and entailment checks is cached, this improves the efficiency of the caching because smaller entailemnts have a higher chance of multiple times during analysis.
+
+The states #old and #new are first split into their formulae, and these lists are concatenated. This list of old and new formulae is then deduplicated using the following algorithm. A list of deduplicated formulae #out is created empty, and then, one by one, the formulae are added to this list. Before adding a formula $phi_0$ into $ out = [phi_1, phi_2, phi_3, ...]$, entailments $phi_0 entl phi_1$, $phi_0 entl phi_2$, ... are tried and only if none of them succeed, $phi_0$ is added to #out.
+
+After the deduplication, we must decide if the new state #out is covered by #old. Again, the entailment is split into a series of smaller entailments, each formula from #out is tested separately. The test of $phi_0$ from #out against $old = [phi_1, phi_2, ...]$ is done formula by formula, if at least one of the entailments $phi_0 entl phi_1$, $phi_0 entl phi_2$, ... succeeds, $phi_0$ is covered by the old state. Each formula from #out is tested this way, and if all of them are covered, the join opeation reports that #old covers the new state and the analysis does not continue beyond this statement.
+
 === Condition Evaluation
+
+// TODO: mozna tomu proste rikat positive/negative branch?
+
+When reaching a conditional statement, the analysis must decide whether to visit the "then" and "else" branch of the conditional, and how to modify the states used in the analysis of these branches. The only analyzed conditions are the equality and inequality of two pointer variables, all other conditions are treated as nondeterministic -- both branches are analyzed with the unchanged input state.
+
+When reaching a condition `a == b`, the equality of $a$ and $b$ is added to the formulae for the "then" branch using `add_eq` described in @eq_distinct. Unsatisfiable formulae are then filtered out. If there are any remaining formulae, the analysis continues into the "then" branch with these. If not, the analysis does not continue into the branch at all. For the "else" branch, the algorithm is the same, only the inequality of $a$ and $b$ is added to the original formulae instead of equality. The function `add_distinct` is used for adding the inequality, as described in @eq_distinct.
+
+When reaching a condition `a != b`, the approach is the same, except that the "then" and "else" branches are interchanged.
 
 = Implementation Details
 
@@ -598,7 +618,7 @@ $ x |-> fields("t": f0, "n": f1) * ls(f1, z) * nls(bound: 0, f0, y, z) $
 
 where #f1 is the additional SLS variable.
 
-=== Equality and Inequality
+=== Equality and Inequality <eq_distinct>
 
 `Eq` represents a list of variables that form an equivalence class. Equivalences in formulae are not handled arbitrarily as pairs of equivalent variables, but a minimal list of disjoint equivalence classes is maintained throughout the analysis. When adding a new equivalence into a formula, the `add_eq lhs rhs` function is used. This function first checks if any of the newly equivalent variables is present in any of the existing equivalent classes, then:
 
