@@ -6,4 +6,5 @@ results/
 bench/build/
 bench/slplugin.egg-info
 bp/main.pdf
+bp/template.pdf
 excel_poster/main.pdf

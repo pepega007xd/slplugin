@@ -185,7 +185,7 @@ With this, the semantics of boolean separation logic are defined as follows:
 $
   &(s,h) entl x = y && "iff" s(x) = s(y) "and" domh = emptyset\
   &(s,h) entl x != y && "iff" s(x) != s(y) "and" domh = emptyset\
-  &(s,h) entl freed(x) && "iff"  h = {s(x) |-> fields("n": freedloc) }\
+  &(s,h) entl freed(x) && "iff" h = {s(x) |-> fields("n": freedloc) }\
   &(s,h) entl emp && "iff" domh = emptyset\
   &(s,h) entl x |-> fields(upright(f_1) : f_1, ..., upright(f_n) : f_n) #h(2em) && "iff" h = {s(x) |-> fields(upright(f_1) : f_1, ..., upright(f_n) : f_n)}\
   & && #h(1em) "and" s(f_n) != freedloc "for each" n\
@@ -195,8 +195,8 @@ $
   &(s,h) entl exists x . thick phi && "iff there is a location" ell "such that" (s[x |-> ell], h) entl phi\
   &(s,h) entl ls(x, y) && "iff" (s,h) entl x = y, "or"\
   & && #h(1em) s(x) != s(y) "and" (s,h) entl exists x'. thick x |-> x' * ls(x', y)\
-  &(s,h) entl dls(x, y, p, n) && "iff" (s,h) entl x = y * p = n, "or"\
-  & && #h(1em) s(x) != s(y), s(p) != s(n), s(p) in.not domh, "and"\
+  &(s,h) entl dls(x, y, p, n) && "iff" (s,h) entl x = n * y = p, "or"\
+  & && #h(1em) s(x) != s(n), s(y) != s(p), s(p) in.not domh, "and"\
   & && #h(1em) (s,h) entl exists x'. thick x |-> fields("n": x', "p": p) * dls(x', y, x, n)\
   &(s,h) entl nls(x, y, z) && "iff" (s,h) entl x = y, "or"\
   & && #h(1em) s(x) != s(y) "and"\
@@ -219,7 +219,7 @@ The semantics of the points-to predicate and boolean atoms is as expected, note 
 
 The inductive predicates describe chains of pointers of an unbounded length:
 
-- $ls(x,y)$ describes a singly linked list of length zero or more. In the first case, the the list is equivalent to $x = y$. Length one is equivalent to a simple pointer $x |-> y * x != y$. All other models contain unnamed allocated memory locations in the chain between $s(x)$ and $s(y)$. Note that $y$ itself is not allocated in any model.
+- $ls(x, y)$ describes a singly linked list of length zero or more. In the first case, the the list is equivalent to $x = y$. Length one is equivalent to a simple pointer $x |-> y * x != y$. All other models contain unnamed allocated memory locations in the chain between $s(x)$ and $s(y)$. Note that $y$ itself is not allocated in any model.
 
 - $dls(x, y, p, n)$ represents a doubly linked list of allocations. Unlike in the previous case, both $x$ and $y$ are allocated. The variables $p$ and $n$ represent the "p" and "n" field of the first and last allocation respectively. Similar to the singly linked list, the zero-length case is equivalent to $x = n * y = p$, and the length one is equivalent to a single points-to atom.
 
@@ -282,6 +282,9 @@ The analysis itself consists of multiple steps. First, the analyzed program is p
 
 == Preprocessing
 
+// TODO: popsat proc se to dela
+// presunout basic instr sem, detaily o preprocessingu dolu do 5.x
+
 The preprocessing consists of an external semantic constant propagation pass along with loop unrolling, followed by multiple custom passes over the AST. This external preprocessing is described in @const_prop. First, all AST nodes not relevant for the analysis are removed. This includes arithmetic and binary operations, type casts, integer comparison operations, and others. Then, variable initialization is replaced by simple assignments. Next, function call arguments with types irrelevant to the analysis are removed. _Relevant types_ are described in @type_analysis.
 
 At this point, the AST should ideally only contain analyzable AST nodes. However, to simplify the implementation of the dataflow analysis, it is necessary to also split expressions in assignments, function call arguments, and conditions into a series of elementary assignments. Each complex statement is replaced by a block, containing temporary variables to which parts of the original expression are assigned. This is described in detail in @stmt_split.
@@ -302,6 +305,8 @@ The analysis itself is implemented using the `Dataflow2` module provided by Fram
 
 === Transfer Function
 
+// TODO: popsat materializaci + odkazat, popsat ze se tam muze detekovat chyba
+
 The transfer function takes formulae describing the state before executing an instruction and changes them to reflect the state after the execution. The transfer function always processes the input formulae one by one, applying the operation described below to each input formula (here called $phi$) separately. The transfer function is implemented for each of the 7 basic instructions:
 
 - Assignment into the special `_const` variable `_const = a;` means that the formula is not changed, but $a$ is checked to be allocated. If not, an invalid dereference is reported. This corresponds to accesses to non-pointer fields in the original source code, see @vars_preprocessing for more details.
@@ -314,6 +319,7 @@ The transfer function takes formulae describing the state before executing an in
 
 - `a = *b;` is processed the same way as `a = b->f;`, except the "field" being dereferenced has a special name `_target`. Pointers to pointers are represented as pointers to structs with a single field `_target`.
 
+// TODO: prepsat
 - Since pointers to pointers are assumed to be allocated on the stack, `*a = b;` is interpreted as an assignment of $b$ into the variable pointed to by $a$. The target of $a$, called $t_a$ is found , and the formula is transformed as a regular assignment of $b$ into it. After that, the points-to atom from $a$ is changed to $a |-> fields("_target": t_a)$ (it was affected by the renaming done during the assignment).
 
 - `a = &b;` is processed differently based on whether $a$ is already allocated (there is a points-to atom from $a$ already in the formula). If so, its `_target` field is simply set to $b$. If not, this atom is added. This is done to prevent adding a second points-to atom from $a$, which would make the formula unsatisfiable.
@@ -366,7 +372,7 @@ When the analysis reaches a statement for the second or subsequent times, there 
 
 As an optimization, this entailment is not evaluated as-is, but is broken into a series of smaller entailments. Because the evaluation of satisfiability and entailment checks is cached, this improves the efficiency of the caching because smaller entailemnts have a higher chance of multiple times during analysis.
 
-The states #old and #new are first split into their formulae, and these lists are concatenated. This list of old and new formulae is then deduplicated using the following algorithm. A list of deduplicated formulae #out is created empty, and then, one by one, the formulae are added to this list. Before adding a formula $phi_0$ into $ out = [phi_1, phi_2, phi_3, ...]$, entailments $phi_0 entl phi_1$, $phi_0 entl phi_2$, ... are tried and only if none of them succeed, $phi_0$ is added to #out.
+The states #old and #new are first split into their formulae, and these lists are concatenated. This list of old and new formulae is first sorted (see @deduplication_sort) and then deduplicated using the following algorithm. A list of deduplicated formulae #out is created empty, and then, one by one, the formulae are added to this list. Before adding a formula $phi_0$ into $out = [phi_1, phi_2, phi_3, ...]$, entailments $phi_0 entl phi_1$, $phi_0 entl phi_2$, ... are tried and only if none of them succeed, $phi_0$ is added to #out.
 
 After the deduplication, we must decide if the new state #out is covered by #old. Again, the entailment is split into a series of smaller entailments, each formula from #out is tested separately. The test of $phi_0$ from #out against $old = [phi_1, phi_2, ...]$ is done formula by formula, if at least one of the entailments $phi_0 entl phi_1$, $phi_0 entl phi_2$, ... succeeds, $phi_0$ is covered by the old state. Each formula from #out is tested this way, and if all of them are covered, the join opeation reports that #old covers the new state and the analysis does not continue beyond this statement.
 
@@ -612,7 +618,7 @@ $
 
 The first formula represents the case where the list $ls(bound: 0, x, y)$ had length of at least one, the second represents the case of the list being empty. Note that materialization also handles explicitly making $x$ the source of the points-to atom.
 
-Materialization of DLS variables is done similarly, with the difference that DLS lists can be materialized from any side. In $dls(x,y,p,n)$, either $x$ or $y$ can be materialized. During the materialization in NLS lists, an additional logic variable representing the start of the SLS sublist is introduced. For example, materializing $x$ in $nls(bound: 1, x, y, z)$ yields
+Materialization of DLS variables is done similarly, with the difference that DLS lists can be materialized from any side. In $dls(x, y, p, n)$, either $x$ or $y$ can be materialized. During the materialization in NLS lists, an additional logic variable representing the start of the SLS sublist is introduced. For example, materializing $x$ in $nls(bound: 1, x, y, z)$ yields
 
 $ x |-> fields("t": f0, "n": f1) * ls(f1, z) * nls(bound: 0, f0, y, z) $
 
@@ -669,15 +675,17 @@ Translating list predicates involves expressing the length bounds implicitly, be
   $dls(bound: 2, x, y, p, n)$, $dls(x, y, p, n) * x != n * x != y$,
   $dls(bound: 3, x, y, p, n)$,
   $(dls(x, y, p, n) * x != n * x != y)\
-    #h(5em) gneg\
-    (x |-> fields("p": p, "n": y) * y |-> fields("p": x, "n": n))$,
+  #h(5em) gneg\
+  (x |-> fields("p": p, "n": y) * y |-> fields("p": x, "n": n))$,
 
   $nls(bound: 1, x, y, z)$, $nls(x, y, z) * x != y$,
   $nls(bound: 2, x, y, z)$,
   $(nls(x, y, z) * x != y)\
-    #h(5em) gneg\
-    (exists f0. thick x |-> fields("t": y, "n": f0) * ls(f0, z))$,
+  #h(5em) gneg\
+  (exists f0. thick x |-> fields("t": y, "n": f0) * ls(f0, z))$,
 )
+
+// TODO: popsat co presne je nls2+
 
 The idea behind this translation is to force the list to be non-empty by adding an inequality for the 1+ cases, and explicitly discard the length one model using guarded negation ($gneg$) for the 2+ cases. Note that translating $nls(bound: 2, x, y, z)$ requires adding new logic variable #f0 existentially quantified _under_ the negation. If it was placed before the negation, the meaning would be different -- negation changes existential quantifiers to universal and vice versa.
 
@@ -829,7 +837,7 @@ $
   dots.c
 $
 
-#let abstr = $ls(bound:2, a, b) * b |-> nil$
+#let abstr = $ls(bound: 2, a, b) * b |-> nil$
 
 The abstraction will instead turn the third formula into #abstr, which will abstract over all possible lengths of the points-to chain that would otherwise be generated. This formula (along with the first two generated formulae) will serve as the fixpoint for this loop (state that is valid in every iteration of the loop). This is because all possible lengths of the points-to chain have models that together make the set of models of the abstracted formula:
 
@@ -853,7 +861,7 @@ If the conditions are met, the two atoms are replaced with a single list atom of
 
 === Doubly Linked Lists
 
-The abstraction of DLS lists is done similarly, except the conditions needed for abstraction are slightly different. For abstracting $dls(bound: 2, x, f0, nil, f1) * dls(bound: 2, f1, y, f0, nil)$ into $ dls(bound: 3, x, y, nil, nil)$, the following conditions must hold:
+The abstraction of DLS lists is done similarly, except the conditions needed for abstraction are slightly different. For abstracting $dls(bound: 2, x, f0, nil, f1) * dls(bound: 2, f1, y, f0, nil)$ into $dls(bound: 3, x, y, nil, nil)$, the following conditions must hold:
 
 - Either the first and the last allocated variable of both atoms must be the same (that signifies the lists have length at most one), or the last allocated variable of the first list (#f0) and the first allocated variable of the second list (#f1) must be logic variables unreachable from the rest of the formula, like in the SLS case.
 
@@ -870,7 +878,7 @@ The length bound of the joined list will be $min(l_1 + l_2, 3)$, because we have
 
 NLS lists are abstracted similarly to SLS lists, except that an additional check must be done that the SLS sublists end up in the same variable. SLS abstraction is run first, so we can expect the sublists to be abstracted into a single list atom. The algorithm for joining two NLS atoms differs based on the type of atom:
 
-When joining two points-to atoms, $x |-> fields("t": f0, "n": f1) * f0 |-> fields("t": y, "n": f2) $, the following options are tried in order:
+When joining two points-to atoms, $x |-> fields("t": f0, "n": f1) * f0 |-> fields("t": y, "n": f2)$, the following options are tried in order:
 - if #f1 is equal to #f2, the atoms are joined as-is into $nls(bound: 2, x, y, f1)$
 - if the formula contains $ls(f1, z)$ and $z$ is equal to #f2, the sublist from #f1 is removed and the atoms are joined into $nls(bound: 2, x, y, z)$
 - if the formula contains $ls(f1, z_1) * ls(f2, z_2)$ and $z_1$ is equal to $z_2$, the sublists from #f1 and #f2 are removed and the atoms are joined into $nls(bound: 2, x, y, z_1)$
@@ -883,9 +891,54 @@ The only way to join two list atoms $nls(x, f0, z_1) * nls(f0, y, z_2)$ into $nl
 
 All equivalences are checked syntactically. All variables at the start of the deleted sublists must be logic variables unreachable from the rest of the formula. The reason for checking this many options instead of just looking for sublists everywhere is that an $nls(x, y, z)$ atom already contains sublists leading to $z$. For example, it is not possible to join $nls(x, f0, f1) * ls(f1, z) * f0 |-> fields("t": y, "n": z)$ into $nls(x, y, z)$ because that would violate the semantics of the NLS atom, in that all sublists leading into $z$ must be disjoint.
 
-== Join
+== Deduplication Sort <deduplication_sort>
 
 // mention different sorting variants of formulae in [deduplicate_state]
+
+// TODO: mozna vytahnout do vlastni kapitoly?
+
+Because the deduplication algorithm processes formulae in order, it is beneficial to first sort these formulae so that the chances of finding duplicate formulae are as high as possible. Specifically, it is always better to have a higher length bound on the list atoms of the formula on the left side of the entailment. For example, the entailment $ls(bound: 0, x, y) entl ls(bound: 2, x, y)$ will not succeed, but $ls(bound: 2, x, y) entl ls(bound: 0, x, y)$ will.
+
+The sorting is done by calculating an integer score for each formula and then sorting the formulae based on this score.
+
+The sorting is done by defining a comparison function that accepts two formulae and puts them to the correct order. This function first calculates the lowest number of allocations for each of the formulae and them puts the higher of the two on the left side of the entailment. This makes sense because the formula with the higher number of allocations can have a subset of the formula with the lower number of allocations, but not the other way around. For example, this entailment will hold:
+
+$ ls(bound: 2, x, y) entl ls(bound: 1, x, y) $
+
+But this one cannot:
+
+$ ls(bound: 1, x, y) entl ls(bound: 2, x, y) $
+
+The score for each formula is calculated by adding up all length bounds on list atoms, points-to atoms are counted as 1. Additionally, if a formula contains any number of list atoms, its score is decreased by one. This is done to prevent a points-to atom from being on the right side of an entailment:
+
+$
+  x |-> y &entl ls(bound: 1, x, y)\
+  1 &> 0
+$
+
+This method even works for some combinations of points-to and list predicates:
+
+$
+  x |-> f0 * ls(bound: 0, f0, y) &entl ls(bound: 0, x, y)\
+  0 &> -1
+$
+
+And for multiple list atoms in one formula:
+
+$
+  ls(bound: 1, x, f0) * ls(bound: 2, f0, y) &entl ls(bound: 2, x, y)\
+  2 &> 1
+$
+
+If this comparison does not decide the order of the entailments, a second score is calculated. The algorithm is the same, except that points-to atoms are not counted at all. In this case, the formula with the lower score is placed on the left side of the entailment This will order formulae such as these:
+
+$
+  x |-> f0 * ls(bound: 1, f0, y) &entl ls(bound: 2, x, y)\
+  1 &gt.not 1 #h(2em) "(first score)"\
+  0 &< 1 #h(2em) "(second score)"
+$
+
+The second scoring does not affect whether the entailment will succeed or not, but it will keep the simpler, more abstracted formula in the deduplicated list instead of the materialized form.
 
 == Underapproximation Mode <underapproximation_mode>
 
@@ -945,3 +998,5 @@ All equivalences are checked syntactically. All variables at the start of the de
 #pagebreak()
 
 #bibliography("references.bib")
+
+// TODO: nil a emp renderovat jaklo monospace
