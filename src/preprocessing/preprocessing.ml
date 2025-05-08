@@ -209,6 +209,7 @@ let preprocess () =
   Visitor.visitFramacFileFunctions remove_noop_assignments file;
   Visitor.visitFramacFileFunctions Stmt_split.split_complex_stmts file;
   Visitor.visitFramacFileFunctions remove_not_operator file;
+  Visitor.visitFramacFileFunctions Condition_split.collect_nondet_int_vars file;
   Visitor.visitFramacFileFunctions Condition_split.split_conditions file;
   Visitor.visitFramacFileFunctions remove_noop_assignments file;
   Visitor.visitFramacFileFunctions remove_non_list_stmts file;

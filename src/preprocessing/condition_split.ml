@@ -2,6 +2,20 @@ open Cil_types
 open Cil
 open Constants
 
+let nondet_int_vars : string list ref = ref []
+
+let collect_nondet_int_vars =
+  object
+    inherit Visitor.frama_c_inplace
+
+    method! vinst (instr : instr) =
+      match Instruction_type.get_instr_type instr with
+      | Call (Some lhs, fn, _) when fn.vname = "__VERIFIER_nondet_int" ->
+          nondet_int_vars := lhs.vname :: !nondet_int_vars;
+          SkipChildren
+      | _ -> SkipChildren
+  end
+
 let convert_condition (func : fundec) (condition : exp) (th : block)
     (el : block) (location : location) : stmtkind =
   let block = mkBlock [] in
@@ -10,7 +24,7 @@ let convert_condition (func : fundec) (condition : exp) (th : block)
   let new_if condition =
     If (new_exp ~loc:location condition, th, el, location)
   in
-  let nondeterministic = new_if (Lval (Var const_var, NoOffset)) in
+  let unknown_condition = new_if (Lval (Var const_var, NoOffset)) in
 
   let new_if_stmt =
     match condition.enode with
@@ -25,8 +39,8 @@ let convert_condition (func : fundec) (condition : exp) (th : block)
         let rhs, _ = exp_to_var rhs in
         if operator = Eq || operator = Ne then
           new_if (BinOp (operator, evar lhs, evar rhs, lhs.vtype))
-        else nondeterministic
-    | _ -> nondeterministic
+        else unknown_condition
+    | _ -> unknown_condition
   in
   block.bstmts <-
     List.rev @@ (mkStmt ~valid_sid:true new_if_stmt :: block.bstmts);
@@ -43,17 +57,18 @@ let split_conditions =
           let new_if condition =
             If (new_exp ~loc:location condition, th, el, location)
           in
-          let nondeterministic = new_if (Lval (Var const_var, NoOffset)) in
+          let unknown_condition = new_if (Lval (Var const_var, NoOffset)) in
           let new_stmtkind =
             match condition.enode with
-            | Lval (Var var, NoOffset) ->
-                if Types.is_relevant_var var then
-                  new_if (BinOp (Ne, evar var, evar nullptr_var, var.vtype))
-                else nondeterministic
+            (* nondeterministic conditions *)
+            | Lval (Var var, NoOffset)
+            | UnOp (LNot, { enode = Lval (Var var, NoOffset); _ }, _)
+              when List.mem var.vname !nondet_int_vars ->
+                new_if (Lval (Var nondet_var, NoOffset))
             | UnOp (LNot, { enode = Lval (Var var, NoOffset); _ }, _) ->
                 if Types.is_relevant_var var then
                   new_if (BinOp (Eq, evar var, evar nullptr_var, var.vtype))
-                else nondeterministic
+                else unknown_condition
             | BinOp
                 ( (Eq | Ne),
                   { enode = Lval (Var lhs, NoOffset); _ },
@@ -61,7 +76,7 @@ let split_conditions =
                   _ ) ->
                 if Types.is_relevant_var lhs && Types.is_relevant_var rhs then
                   stmt.skind
-                else nondeterministic
+                else unknown_condition
             | _ -> convert_condition func condition th el location
           in
           stmt.skind <- new_stmtkind;
