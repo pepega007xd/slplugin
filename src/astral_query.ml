@@ -46,15 +46,6 @@ let check_entailment (lhs : Formula.state) (rhs : Formula.state) : bool =
     (Formula.canonicalize_state lhs, Formula.canonicalize_state rhs)
   in
 
-  (* fresh vars on lhs and rhs must have different names *)
-  let lhs_fresh_vars_count =
-    List.concat_map Formula.get_fresh_vars lhs |> List.length
-  in
-  let rhs =
-    List.map
-      (Formula.standardize_fresh_var_names ~start_from:lhs_fresh_vars_count)
-      rhs
-  in
   let astral_lhs, astral_rhs =
     (Formula.state_to_astral lhs, Formula.state_to_astral rhs)
   in
