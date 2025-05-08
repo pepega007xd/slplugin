@@ -113,7 +113,7 @@ let combinePredecessors _ ~old:(old_state : t) (new_state : t) : t option =
       old_state Formula.pp_state new_state Formula.pp_state joined_state;
     Some joined_state)
 
-let nondet_condition_reached = ref false
+let unknown_condition_reached = ref false
 
 (* we need to filter the formulas of [state] for each branch to only those,
    which are satisfiable in each of the branches *)
@@ -135,10 +135,13 @@ let doGuard _ (condition : exp) (state : t) : t guardaction * t guardaction =
         | Eq -> (eq, ne)
         | Ne -> (ne, eq)
         | _ ->
-            nondet_condition_reached := true;
+            unknown_condition_reached := true;
             (state, state))
+    (* nondeterministic conditions do not count as unknown *)
+    | Lval (Var var, NoOffset) when var.vname = Constants.nondet_var_name ->
+        (state, state)
     | _ ->
-        nondet_condition_reached := true;
+        unknown_condition_reached := true;
         (state, state)
   in
   let th = List.filter Astral_query.check_sat th in

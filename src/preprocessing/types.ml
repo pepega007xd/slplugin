@@ -116,6 +116,7 @@ let varinfo_to_var (varinfo : Cil_types.varinfo) : SL.Variable.t =
   match varinfo.vname with
   | name when name = null_var_name -> SL.Variable.nil
   | name when name = const_var_name -> fail "_const in varinfo_to_var"
+  | name when name = nondet_var_name -> fail "_nondet in varinfo_to_var"
   | _ when not @@ is_relevant_var varinfo ->
       fail "invalid type in varinfo_to_var: %a" Printer.pp_varinfo varinfo
   | _ ->
