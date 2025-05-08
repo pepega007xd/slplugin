@@ -1,0 +1,13 @@
+
+format_version: '2.0'
+
+input_files: 'dls_double_free.c'
+
+properties:
+  - property_file: valid-memsafety.prp
+    expected_verdict: false
+    subproperty: valid-free
+
+options:
+  language: C
+  data_model: LP64

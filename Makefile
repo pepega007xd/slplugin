@@ -1,6 +1,7 @@
-.DEFAULT_GOAL := svcomp
+.DEFAULT_GOAL := benchmark
+.PHONY: benchmark verifit results results-diff run run-direct
 
-svcomp:
+benchmark: prepare
 	pip install bench/
 	dune b && dune install
 	rm -rf results/*
@@ -12,7 +13,7 @@ verifit:
 	scp -r verifit:slplugin/results .
 	$(MAKE) result
 
-result:
+results:
 	table-generator results/*.xml.bz2
 	python3 -m http.server -b 127.0.0.1 8000 -d /home/tb/projects | \
 	firefox 'localhost:8000/slplugin/results'
@@ -20,7 +21,7 @@ result:
 ALLARGS := $(wordlist 2, $(words $(MAKECMDGOALS)), $(MAKECMDGOALS))
 ARGS_WITH_SUFFIX := $(addsuffix /*.xml.bz2, $(ALLARGS))
 
-result-diff:
+results-diff:
 	rm -rf results-diff/*
 	table-generator $(ARGS_WITH_SUFFIX) -o results-diff
 	python3 -m http.server -b 127.0.0.1 8000 -d /home/tb/projects | \
@@ -40,13 +41,3 @@ run-direct:
 
 %:
 	@:
-
-poster:
-	typst compile excel_poster/main.typ excel_poster/poster.pdf
-
-EXCEL_ZIP_NAME := xbrabl04_Static_Analysis_of_Heap-Manipulating_Programs_using_Separation_Logic.zip
-
-excel: poster
-	rm -rf $(EXCEL_ZIP_NAME)
-	zip -j $(EXCEL_ZIP_NAME) excel_poster/poster.pdf excel_abstract/abstrakt.pdf excel_poster/nahled.png
-

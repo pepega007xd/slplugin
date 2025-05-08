@@ -1,15 +1,15 @@
 #include <stdlib.h>
 
 typedef struct DLL {
-        struct DLL *next;
-        struct DLL *prev;
-        int data;
+    struct DLL *next;
+    struct DLL *prev;
+    int data;
 } DLL;
 
 void construct_list(DLL *s) {
     int nondeterministic;
     while (nondeterministic) {
-        DLL *next = calloc(1, 1);
+        DLL *next = malloc(1);
         if (next == NULL) {
             s->next = NULL;
             return;
@@ -39,7 +39,7 @@ void free_list(DLL *s) {
 }
 
 int main() {
-    DLL *start = calloc(1, 1);
+    DLL *start = malloc(1);
     if (start == NULL) {
         return NULL;
     }
@@ -48,7 +48,7 @@ int main() {
     traverse_list(start);
     free_list(start);
 
-    start = calloc(1, 1);
+    start = malloc(1);
     if (start == NULL) {
         return NULL;
     }

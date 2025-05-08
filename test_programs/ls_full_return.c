@@ -1,8 +1,8 @@
 #include <stdlib.h>
 
 typedef struct SLL {
-        struct SLL *next;
-        int data;
+    struct SLL *next;
+    int data;
 } SLL;
 
 SLL *construct_list() {

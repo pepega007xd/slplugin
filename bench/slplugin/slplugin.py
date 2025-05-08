@@ -15,6 +15,9 @@ class Tool(benchexec.tools.template.BaseTool2):
     def project_url(self):
         return "https://github.com/pepega007xd/slplugin"
 
+    def get_direct_args(self, input_file):
+        return f"frama-c -sl -sl-benchmark-mode -sl-no-catch-exceptions -sl-astral-encoding Bitvectors -sl-backend-solver Bitwuzla -sl-edge-deduplication -sl-simple-join {input_file}"
+
     def get_args(self, input_file, ulevel):
         return f"frama-c -scf -ulevel={ulevel} {
             input_file} -then-replace -sl -sl-benchmark-mode -sl-no-catch-exceptions -sl-astral-encoding Bitvectors -sl-backend-solver Bitwuzla -sl-edge-deduplication -sl-simple-join"
@@ -22,6 +25,9 @@ class Tool(benchexec.tools.template.BaseTool2):
     def cmdline(self, executable, options, task, rlimits):
         input_file = task.input_files[0]
         input_file = input_file[:-1] + "c"  # use .c file instead of .i file
+
+        if len(options) > 0 and options[0] == "direct":
+            return self.get_direct_args(input_file).split()
 
         args_ulevel_3 = self.get_args(input_file, 3)
         args_ulevel_2 = self.get_args(input_file, 2)
