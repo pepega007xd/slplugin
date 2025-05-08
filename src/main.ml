@@ -19,7 +19,6 @@ let run_analysis () =
   Func_call.merge_all_results ();
 
   Solver.dump_stats !Common.solver;
-  Self.result "Astral took %.2f seconds" !Astral_query.solver_time;
 
   let return_stmt = Kernel_function.find_return main in
 
@@ -30,7 +29,7 @@ let run_analysis () =
 
 let main () =
   Printexc.record_backtrace true;
-  try run_analysis () with
+  (try run_analysis () with
   | Formula.Invalid_deref (var, formula)
     when not !Analysis.unknown_condition_reached ->
       Common.warning "Invalid_deref: var '%a' in formula '%a'" SL.Variable.pp
@@ -46,6 +45,7 @@ let main () =
         let backtrace = Printexc.get_backtrace () in
         Self.warning "EXCEPTION: %s" (Printexc.to_string e);
         Self.warning "BACKTRACE: \n%s" backtrace)
-      else raise e
+      else raise e);
+  Self.result "Astral time: %.2f" !Astral_query.solver_time
 
 let () = Boot.Main.extend (fun () -> if Enable_analysis.get () then main ())

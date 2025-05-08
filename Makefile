@@ -1,7 +1,7 @@
 .DEFAULT_GOAL := benchmark
 .PHONY: benchmark verifit results results-diff run run-direct
 
-benchmark: prepare
+benchmark:
 	pip install bench/
 	dune b && dune install
 	rm -rf results/*
@@ -11,10 +11,11 @@ benchmark: prepare
 verifit:
 	rm -rf results/*
 	scp -r verifit:slplugin/results .
-	$(MAKE) result
+	$(MAKE) results
 
 results:
-	table-generator results/*.xml.bz2
+	pip install bench/
+	table-generator -x bench/slplugin-results.xml -o results results/*.xml.bz2
 	python3 -m http.server -b 127.0.0.1 8000 -d /home/tb/projects | \
 	firefox 'localhost:8000/slplugin/results'
 
