@@ -6,18 +6,18 @@
   timelimit="3 min"
   memlimit="1500 MB"
 >
-  <rundefinition>
+  <rundefinition name="Custom Benchmarks">
+    <option>direct</option>
     <tasks>
-      <includesfile>../../sv-benchmarks/c/LinkedLists.set</includesfile>
-      <propertyfile>../../sv-benchmarks/c/properties/valid-memsafety.prp</propertyfile>
+      <include>../test_programs/*.yml</include>
+      <propertyfile>../test_programs/valid-memsafety.prp</propertyfile>
     </tasks>
   </rundefinition>
 
-  <rundefinition>
-    <option>direct</option>
+  <rundefinition name="SV-COMP Benchmarks">
     <tasks>
-      <includesfile>../examples/all.set</includesfile>
-      <propertyfile>../examples/valid-memsafety.prp</propertyfile>
+      <includesfile>../../sv-benchmarks/c/LinkedLists.set</includesfile>
+      <propertyfile>../../sv-benchmarks/c/properties/valid-memsafety.prp</propertyfile>
     </tasks>
   </rundefinition>
 </benchmark>

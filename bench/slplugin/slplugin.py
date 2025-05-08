@@ -27,7 +27,7 @@ class Tool(benchexec.tools.template.BaseTool2):
         input_file = input_file[:-1] + "c"  # use .c file instead of .i file
 
         if len(options) > 0 and options[0] == "direct":
-            return self.get_direct_args(input_file)
+            return self.get_direct_args(input_file).split()
 
         args_ulevel_3 = self.get_args(input_file, 3)
         args_ulevel_2 = self.get_args(input_file, 2)
