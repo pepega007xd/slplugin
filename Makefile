@@ -1,4 +1,5 @@
 .DEFAULT_GOAL := benchmark
+.PHONY: benchmark verifit results results-diff run run-direct
 
 benchmark: prepare
 	pip install bench/
