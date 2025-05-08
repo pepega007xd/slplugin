@@ -1,20 +1,20 @@
 #include <stdlib.h>
 
 typedef struct SLL {
-        struct SLL *next;
-        int data;
+    struct SLL *next;
+    int data;
 } SLL;
 
 typedef struct DLL {
-        struct DLL *next;
-        struct DLL *prev;
-        int data;
+    struct DLL *next;
+    struct DLL *prev;
+    int data;
 } DLL;
 
 typedef struct NL {
-        struct NL *top;
-        struct SLL *next;
-        int data;
+    struct NL *top;
+    struct SLL *next;
+    int data;
 } NL;
 
 int main() {

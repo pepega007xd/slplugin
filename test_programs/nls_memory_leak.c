@@ -1,20 +1,20 @@
 #include <stdlib.h>
 
 typedef struct SLL {
-        struct SLL *next;
-        int data;
+    struct SLL *next;
+    int data;
 } SLL;
 
 typedef struct NL {
-        struct NL *top;
-        struct SLL *next;
-        int data;
+    struct NL *top;
+    struct SLL *next;
+    int data;
 } NL;
 
 void construct_list(NL *s) {
     int nondeterministic;
     while (nondeterministic) {
-        s->top = calloc(1, 1);
+        s->top = malloc(1);
         if (s->top == NULL) {
             return;
         }
@@ -43,7 +43,7 @@ void free_list(NL *s) {
 }
 
 int main() {
-    NL *start = calloc(1, 1);
+    NL *start = malloc(1);
     if (start == NULL) {
         return 1;
     }
@@ -53,7 +53,7 @@ int main() {
     traverse_list(start);
     free_list(start);
 
-    start = calloc(1, 1);
+    start = malloc(1);
     if (start == NULL) {
         return NULL;
     }
@@ -61,5 +61,5 @@ int main() {
 
     construct_list(start);
     traverse_list(start);
-    free_list(start);
+    // free_list(start);
 }

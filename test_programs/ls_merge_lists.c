@@ -1,8 +1,8 @@
 #include <stdlib.h>
 
 typedef struct List {
-        struct List *next;
-        int data;
+    struct List *next;
+    int data;
 } SLL;
 
 void construct_list(SLL *s) {
@@ -29,6 +29,14 @@ SLL *merge_lists(SLL *x, SLL *y) {
     return x->next;
 }
 
+void free_list(SLL *s) {
+    while (s) {
+        SLL *next = s->next;
+        free(s);
+        s = next;
+    }
+}
+
 int main() {
     SLL *first = malloc(1);
     if (first == NULL) {
@@ -44,5 +52,5 @@ int main() {
 
     SLL *c = merge_lists(first, second);
 
-    int a = 42;
+    free_list(first);
 }

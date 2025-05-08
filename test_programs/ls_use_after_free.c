@@ -1,13 +1,14 @@
 #include <stdlib.h>
 
+int __VERIFIER_nondet_int();
+
 typedef struct SLL {
-        struct SLL *next;
-        int data;
+    struct SLL *next;
+    int data;
 } SLL;
 
 void construct_list(SLL *s) {
-    int nondeterministic;
-    while (nondeterministic) {
+    while (__VERIFIER_nondet_int()) {
         s->next = malloc(1);
         if (s->next == NULL) {
             return;
@@ -52,4 +53,6 @@ int main() {
     construct_list(start);
     traverse_list(start);
     free_list(start);
+
+    traverse_list(start);
 }

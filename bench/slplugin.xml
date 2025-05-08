@@ -12,4 +12,12 @@
       <propertyfile>../../sv-benchmarks/c/properties/valid-memsafety.prp</propertyfile>
     </tasks>
   </rundefinition>
+
+  <rundefinition>
+    <option>direct</option>
+    <tasks>
+      <includesfile>../examples/all.set</includesfile>
+      <propertyfile>../examples/valid-memsafety.prp</propertyfile>
+    </tasks>
+  </rundefinition>
 </benchmark>
