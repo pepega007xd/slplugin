@@ -106,7 +106,10 @@ I would like to thank my supervisor Ing. Tomáš Dacík and my advisor prof. Ing
 
 #outline(target: heading.where(numbering: "1.1"))
 
-#pagebreak()
+#show heading.where(depth: 1): body => {
+  pagebreak()
+  body
+}
 
 = Introduction
 
@@ -139,7 +142,15 @@ The analyzer is then tested on example programs that work with all supported typ
 
 = Preliminaries
 
-== Formal Verification
+== Static Analysis of Programs
+
+Static analysis of programs is a collection of methods to determine some properties of programs without executing them. The goal is to detect bugs in software, ensure code quality (linters, compiler warnings), enable optimizations during compilation, or prove correctness. The main advantage of static analysis compared to dynamic analysis, which involves running the program in different configurations, is that static analysis can reason about all possible executions of the program at once, and can therefore prove properties of programs. Some of the methods used for static analysis fall into the category of formal verification -- methods designed to prove correctness of programs.
+
+There are numerous approaches to formal verification. One of these is _abstract interpretation_, a method which simualates program execution, but it over-approximates program values on some abstract domain (for example, using intervals for integer values). Formulae of separation logic are one of these abstract domains especially useful for verifying the memory safety of programs.
+
+Another approach is _model checking_, which verifies that a finite-state model of a system satisifes some specification. A typical usecase might be the verification of concurrent systems. Temporal logics are often used for this purpose.
+
+_Symbolic execution_ is another common approach that simulates the execution of a program, but uses symbolic values instead of concrete values, generating constraints for different paths through the program. Solving these constraints can then be used to for example discover inputs that trigger bugs in programs.
 
 == Separation Logic <sl_chapter>
 
@@ -150,7 +161,6 @@ Due to the high expressivity of general separation logic, existing solvers usual
 The rest of this chapter describes a fragment of separation logic called _boolean separation logic_ as described in @astral, which, unlike other SL fragments, allows for a limited use of boolean operators -- conjunction, disjunction, and guarded negation ($phi and_not psi$). These are needed for the representation of lists with a non-zero minimum length, and for representing a state using a disjunction of multiple formulae.
 
 === Syntax
-
 
 Variables in SL have a _sort_ representing the type of list the variable can be a part of. There are three predefined sorts, $SS$ for singly linked lists (SLS), $DD$ for doubly linked lists (DLS), and $NN$ for nested lists (NLS). We denote $x^SS$ as a variable of sort $SS$. Additional, generic sorts can be defined along with custom fields $upright(f_1), ..., upright(f_n)$ in its points-to predicate. In the grammar, this sort is denoted as $GG_n$. There is also a special variable nil without a sort.
 
@@ -265,6 +275,18 @@ Ivette is a desktop application written in TypeScript using a client-server arch
 // - other analyzers? forester automata something something -> do not explain, just mention
 // - infer, MS slayer
 // other approachees using SL -> does anyone else use a dedicated SL solver? is there a SL solver other than Astral?
+
+// - predator, cpachecker
+// - eva
+// - infer
+
+This chapter lists some static analysis tools that focus on the memory safety of programs with dynamically allocated data structures, and on tools that use separation logic in their analysis. Both research prototypes and tools used in production are mentioned.
+
+_Predator_ @predatorHP is a verification tool aimed at programs with dynamic data structures. It supports many variants of lists: singly and doubly linked, nested, cyclic, and others. It uses abstract interpretation over _Symbolic Memory Graphs_ as its domain. The analyzer is able to prove the memory safety of programs -- it proves the absence of invalid pointer dereferences, double-free bugs, and memory leaks. PredatorHP, a paralelized version of the tool running in different configurations, consistently dominates the `LinkedLists` subcategory of the SV-COMP competition (see @results).
+
+_EVA_ @eva is a verifier based on the Frama-C framework, it uses abstract interpretation to detect many kinds of undefined behavior in C programs. It is a general-purpose verifier, it tracks values of both numeric and pointer variables. It can detect invalid memory accesses such as null-pointer dereferences or buffer overruns, reads of uninitialized memory, integer overflows, divisions by zero and other errors. Its abstract domain uses enumerations and intervals for numeric values and sets of addresses for pointers. However, it does not have the capability to represent unbounded heap structures in a closed form.
+
+_Infer_ @infer is a production-grade verifier focusing on the memory safety of programs. It uses bi-abductive analysis to infer pre-conditions and post-conditions without the full context of the program, and utilizes separation logic to represent abstract memory states. It interprocedural analysis to analyze large codebases and can analyze dynamic data structures such as many variants of lists and trees.
 
 = Analysis
 
@@ -427,7 +449,7 @@ access(list);
 
 Because all other conditions are considered nondeterministic (see @conditions), the analysis will include the possibility of the number of loop iteations being zero. This means that the state after the loop will contain a formula describing the list having zero length. The problem is that the code below the loop will rightfully assume the list has non-zero length, accessing n-th node in the list without checking that the pointer to it is not `NULL`. The analysis will then detect a potential invalid dereference, and because a nondeterministic condition had been reached, it will return an unknown result.
 
-The solution to this is to run an analysis of integer values on the program and statically determine the number of iterations over the loop. Integrating analysis of integer values into the dataflow pass itself would be a large change to the project late in development, so it was decided to use the _Semantic constant folding_ (SCF) plugin @scf_plugin shipped with Frama-c, which in turn uses the Eva @eva_user_manual plugin for value analysis. This is used in combination with Frama-C's loop unrolling setting `ulevel` to unroll a few iterations of every loop. This preprocessing pass will produce roughly the following code when used with setting `-ulevel=2`:
+The solution to this is to run an analysis of integer values on the program and statically determine the number of iterations over the loop. Integrating analysis of integer values into the dataflow pass itself would be a large change to the project late in development, so it was decided to use the _Semantic constant folding_ (SCF) plugin @scf_plugin shipped with Frama-c, which in turn uses the EVA @eva_user_manual plugin for value analysis. This is used in combination with Frama-C's loop unrolling setting `ulevel` to unroll a few iterations of every loop. This preprocessing pass will produce roughly the following code when used with setting `-ulevel=2`:
 
 ```c
 int len = 5;
@@ -728,7 +750,7 @@ After the analysis of the function, we will get the formula $ls(bound: 1, f0, ni
 
 To avoid recomputing the analysis of a function call every time that the function is reached, a cache of _function summaries_ is maintained. A function summary is the mapping of an input formula to an output state. Input to the cache is a pair of the called function and the processed input formula after adding anchor variables and renaming arguements to parameters. Caching cannot be done on the original input formula, because arguemnt names will differ in different call sites. The conversion of the output state will assure that a summary created at one call site will be valid at any other call site.
 
-If a summary is not found in the cache, the analysis of the function begins. Unfortunately, the implementation of dataflow analysis in Frama-C does not directly support interprocedural analysis, so we must manually backup the analysis context of the current function, and create a new context for the called function. This context consists of one hashmap for the analysis results and a second hashmap for storing the number of loop iterations (see @underapproximation_mode for more details). The context is represented by the type `function_context` in a global variable.
+If a summary is not found in the cache, the analysis of the function begins. Unfortunately, the implementation of dataflow analysis in Frama-C does not directly support interprocedural analysis, so we must manually backup the analysis context of the current function, and create a new context for the called function. This context consists of one hashmap for the analysis results and a second hashmap for storing the number of loop iterations in underapproximation mode (see @configuration for more details). The context is represented by the type `function_context` in a global variable.
 
 After creating the new context, the inital state for the first statement in the called function is set to the modified input formula, and the analysis is started on this statement. After the analysis finishes, the result state is read out from the result hashmap, and the original context is restored.
 
@@ -813,7 +835,7 @@ This generalization could be extended to turn the resulting state into $ls(bound
 == Abstraction <abstraction>
 
 // describe the algorithm, possible improvements (configurable bounds)
-The abstraction operates on each formula of the state separately, the abstraction of each list type is done in a separate pass. In general, the point of abstracting chains of points-to predicates into list predicates is to create invariants for loops. Consider the following code:
+The abstraction operates on each formula of the state separately, the abstraction of each list type is done in a separate pass. In general, the point of abstracting chains of points-to predicates into list predicates is to create invariants for loops. Abstraction is only done when returning from the end of a loop back to the beginning (i. e. from `b = b->next;` to `while (rand())`). Consider the following code:
 
 ```c
 a = alloc_node();
@@ -940,38 +962,17 @@ $
 
 The second scoring does not affect whether the entailment will succeed or not, but it will keep the simpler, more abstracted formula in the deduplicated list instead of the materialized form.
 
-== Underapproximation Mode <underapproximation_mode>
+== Configuration <configuration>
 
-// implementation
-// removing references when going out of scope
+There are a few configuration options to change how the analysis does certain operations. Here is a list of the relevant ones.
 
-== Configurability
+`-sl-edge-abstraction` enables abstraction of formulae on every edge between two statements, not just at the end of a loop. This can significantly decrease the analysis times when enabled because the abstraction is done sooner, but leads to incorrect results in some cases.
 
-// -sl-astral-debug    Print info about queries to Astral (opposite option is
-//                     -sl-no-astral-debug)
-// -sl-astral-encoding <Bitvectors | Sets>  Which location encoding should
-//                     Astral use, default: Bitvectors
-// -sl-backend-solver <Auto | Bitwuzla | CVC5 | Z3>  Which solver should be used
-//                     by Astral, default: Auto
-// -sl-benchmark-mode  Enables features needed to run benchmarks (opposite
-//                     option is -sl-no-benchmark-mode)
-// -sl-catch-exceptions  Catch exceptions in main function (disable for
-//                     benchmarks) (set by default, opposite option is
-//                     -sl-no-catch-exceptions)
-// -sl-dump-queries    Dump Astral queries to 'astral_queries' directory.
-//                     (opposite option is -sl-no-dump-queries)
-// -sl-edge-abstraction  Do abstraction on every edge between stmts (default:
-//                     abstraction is done on loop return) (opposite option is
-//                     -sl-no-edge-abstraction)
-// -sl-edge-deduplication  Deduplicate states using join (entailments) on every
-//                     edge between stmts (opposite option is
-//                     -sl-no-edge-deduplication)
-// -sl-max-loop-cycles <N>  If set, the analysis will traverse loops only N
-//                     times
-// -sl-print-sort      Print sort of variables along with their names (opposite
-//                     option is -sl-no-print-sort)
-// -sl-simple-join     Compute join of states using entailment on single
-//                     formulas (opposite option is -sl-no-simple-join)
+`-sl-no-edge-deduplication` disables formula deduplication on every edge between two statements. Note that even when this option is enabled, deduplication is done during the join operation.
+
+`-sl-no-simple-join` disables the optimization in formula deduplication. When this option is used, the entailments are computed directly using disjunctions of formulae instead of formula by formula.
+
+`-sl-max-loop-cycles <N>` enables an underapproximation mode, where each loop is traversed at most `N` times when reached. When enabled, the analysis no longer proves correctness of programs, but the output of the analysis can still help find bugs in programs where the normal analysis would get stuck on a loop for which it cannot find a fixpoint.
 
 = Results <results>
 
@@ -1061,7 +1062,7 @@ SV-COMP is a yearly competition for verification tools composed of many categori
 
 When trying different settings of the loop unrolling (see @const_prop), it became clear that some tests will only finish when run with a higher count of unrolled iterations and other tests will only finish with a lower count. After some trial and error, we chose to run the analysis for one third of the maximum time with the the unrolling level set to 3. If the analysis timeouts, the second third is run with unrolling level of 2, and for the last third, no unrolling is done at all.
 
-Of the 134 total benchmarks, this tool correctly analyzes 80 programs. The full results can be seen in the table below, compared to PredatorHP @predatorHP (the best-performing analyzer of SV-COMP 2025 in the `LinkedLists` subcategory) and EVA @eva (static analyzer built into Frama-C).
+Of the 134 total benchmarks, this tool correctly analyzes 80 programs. The full results can be seen in the table below, compared to PredatorHP (the best-performing analyzer of SV-COMP 2025 in the `LinkedLists` subcategory) and EVA (static analyzer built into Frama-C).
 
 #table(
   columns: 4,
@@ -1184,14 +1185,25 @@ The other slow queries are similar to this one in fact that they are entailments
 
 = Conclusion
 
+// This thesis describes the design and implementation of a verification tool for C programs, focusing on programs using linked lists. The idea is to derive the shape of the data structures that exist in the program's heap during execution. This is then used to prove correctness of all memory accesses in the program, and to detect possible invalid memory accesses. The approach is based on representing abstract program states using formulae of separation logic. It is implemented in the Frama-C framework, utilizing its dataflow analysis template, and value analysis for semantic constant propagation. The tool was benchmarked on the linked lists subset of SV-COMP benchmarks and compared with similar verification tools. While not reaching the performance of top competitors in this category, it is on par with most verifiers.
+
+// - studied analysis methods
+// what was implemented
+
+This thesis introduced a static analyzer focused on verifying the memory safety of C programs. The tool uses is uses dataflow analysis with separation logic formulae as the value domain. The analyzer implements abstraction using inductive predicates, which allows it to analyze list structures of unbounded size.
+
+The analyzer was tested on a custom set of benchmark programs that show it can prove correctness of programs that create unbounded lists of all supported types. These benchmarks also verify that the analyzer is able to correctly detect use-after-free errors, null-pointer dereferences, double-free errors and memory leaks.
+Further benchmarking was done on the `LinkedLists` subset of the SV-COMP benchmark collection. Of the 134 total programs, our analyzer can find 80 correct results. From the 18 analyzers that competed in SV-COMP 2025, only two other analyzers achieve higher results than this. The main drawback of our method preventing us from analyzing more programs is the lack of support for pointer arithmetic. Another disadvantage compared to other analyzers is the lack of analysis of numeric values, which makes the analysis of most conditions impossible. Because of this, most programs containing bugs are reported unknown results instead of detected errors, because the analyzer cannot be sure that the detected bug is real, and not just a false-positive caused by an imprecise analysis of a condition.
+
+The analysis time differs based on the type of list involved and the complexity of the operations done on the list. For programs that work with singly linked lists, the analysis time is usually around a second, often under a second. For doubly linked lists and nested lists, the analysis can take seconds to tens of seconds. Most of the analysis time is spent in the Astral solver deciding formulae, the time spent in the analyzer itself is roughly independent of the analyzed program, around half a second. Most queries to the solver are evaluated in less than 100 milliseconds. Each analysis usually contains just a small number of queries that take up most of the total analysis time. These queries are typically entailments with inductive predicates and existentially quantified logic variables.
 
 == Future Work
 
-// better detection of list types -> acc to structures created during the analysis
+The most promising direction to improve the precision of the analysis is to somehow add numeric value analysis into the tool. One approach to do this might be to implement a simple numeric value analysis manually. Because Astral decides SL by translation into SMT, it is possible to add SMT terms with integer variables in SL formulae. Another, more interesting way to get numeric value analysis would be to integrate our analysis method into the EVA analyzer. EVA would provide the values of numeric variables to our tool to better analyze integer conditions, and our analyzer would provide more precise information about pointer variables to EVA. Moreover, the tools are based on similar analysis methods and both use the same framework, which would simplify the integration.
 
-// use freed(x!0) to represent newly allocated memory?
+Another possible improvement is switching from static list type detection based on C types to dynamic detection based on pointer structures that form in the heap during the analysis. This would eliminate timeouts caused by not applying the correct abstraction to the formulae.
 
-#pagebreak()
+Other possible improvements include extending the generalization of formulae beyond the comparison of singular atoms or using the `freed` predicate to signify unallocated memory locations when allocating memory. These improvements could help reduce the amount of formulae in each state during analysis and decrease the time needed for deciding SL formulae.
 
 #bibliography("references.bib")
 
