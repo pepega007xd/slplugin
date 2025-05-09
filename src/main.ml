@@ -16,10 +16,6 @@ let run_analysis () =
 
   ForwardsAnalysis.compute [ first_stmt ];
 
-  Func_call.merge_all_results ();
-
-  Solver.dump_stats !Common.solver;
-
   let return_stmt = Kernel_function.find_return main in
 
   if
@@ -46,6 +42,9 @@ let main () =
         Self.warning "EXCEPTION: %s" (Printexc.to_string e);
         Self.warning "BACKTRACE: \n%s" backtrace)
       else raise e);
+
+  Solver.dump_stats !Common.solver;
+  Func_call.merge_all_results ();
   Self.result "Astral time: %.2f" !Astral_query.solver_time
 
 let () = Boot.Main.extend (fun () -> if Enable_analysis.get () then main ())
