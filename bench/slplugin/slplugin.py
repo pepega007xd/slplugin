@@ -56,7 +56,6 @@ class Tool(benchexec.tools.template.BaseTool2):
     def get_value_from_output(self, output, identifier):
         output = str(output)
         if identifier == "astraltime":
-            print(output)
             return next((s.split()[3] for s in output.splitlines()
                          if "Astral time" in s), "")
 
