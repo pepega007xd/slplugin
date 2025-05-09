@@ -532,7 +532,7 @@ First, all relevant fields of the structure are recursively analyzed to get thei
 
 Then, each type is connected to its corresponding sort and struct definition in the `type_info` table. The struct definition contains the names and sorts of all fields in the structure.
 
-This method of analysis has a drawback. Not all implementations of supported linked lists will use one of these structures. For example, in SV-COMP benchmark #svcomp_link("c/forester-heap/sll-01-1.c"), the nested list structure is defined as follows:
+This method of analysis has a drawback. Not all implementations of supported linked lists will use one of these structures. For example, in SV-COMP benchmark #svcomp_link("forester-heap/sll-01-1.c"), the nested list structure is defined as follows:
 
 ```c
 typedef struct TSLL
@@ -973,21 +973,217 @@ The second scoring does not affect whether the entailment will succeed or not, b
 // -sl-simple-join     Compute join of states using entailment on single
 //                     formulas (opposite option is -sl-no-simple-join)
 
-= Results
+= Results <results>
 
-// explain running with different ulevel settings
+The analysis tool was evaluated on a small set of custom programs and on a subset of the SV-COMP benchmarks @svcomp.
 
-== Manual Testing
+We use the Benchexec framework @benchexec for both sets of benchmarks. Benchexec is a benchmarking framework that automatically evaluates a program on a set of benchmarks, while constraining system resources. Benchexec requires a tool definition in the form of a Python module that tells it how to execute the analyzer on a given test program. This module is provided in #plugin_link("bench/slplugin/slplugin.py"). The benchmarks are then executed using a benchmark run definition, an XML file that defines the set of programs on which to test the analyzer and the resource limits to apply. Benchexec then runs the benchmarks while tracking resource usage. Results of all the benchmarks can then be rendered to an HTML table for viewing or to CSV for further processing.
 
-// maybe create a simple meaningful program and show that it can be analyzed -> postfix expr calculator?
+#figure(
+  caption: "Benchmark results rendered by Benchexec",
+  image("benchexec.png"),
+)
+
+All benchmarks were run on an AMD EPYC 9124 processor with the following resource limits for each benchmark:
+- 1500 MB of memory
+- 3 minutes of total run time
+
+The amount of memory was chosen as small as possible such that no tests would run out of memory and so that the testing could be paralelized into 8 processes on a VM with 8 CPU cores and 16 GB of memory available. This limit has a wide margin since the largest amount of allocated memory during a benchmark was under 600 MB. In the case of maximum test time, the three minutes were chosen as the smallest value such that no additional tests would timeout compared to a run with 15 minutes of maximum test time.
+
+The evaluated version of the analyzer is marked with the Git tag `final_code`.
+
+In the SV-COMP dataset, one of the analyzed properties programs is called `MemSafety`, which requires the following subproperties to hold:
+- `valid-free` -- all memory deallocations are valid (no pointers other than those allocated with `malloc` and others are passed to the `free` function).
+- `valid-deref` -- all pointer dereferences are valid.
+- `valid-memtrack` -- all memory allocations are tracked (no memory is leaked by losing a pointer to it or left allocated after the end of the `main` function).
+
+The benchmarked programs all have an expected result. The expected result can either be a violation of one of the properies, or `true` signifying that all properties are valid for the program.
+
+== Custom Benchmarks
+
+The custom benchmarks verify that all basic parts of the analyzer work as intended. On the evaluated version of the analyzer, all of the custom benchmarks are passing. Since these programs are purposefully written to test the analyzer, they do not contain any code that requires the external preprocessing described in @const_prop, and it is therefore not enabled for these tests. The test programs are located in #plugin_link("test_programs") and can be divided to these groups.
+
+The first group contains programs that test a specific part of the analysis, these serve as a quick check of specific functionality during development. The only property being tested here is that the analysis completes successfully.
+- `all_list_types.c` -- list and field type recognition, type heuristic
+- `generic_structs.c` -- handling of structs not recognized as lists
+- `stack_pointers.c` -- handling of pointers to variables on the stack
+
+The second group tests checks the analysis of a correct program that allocates a list of nondeterministic size, traverses the list from start to end, and deallocates the list. These benchmarks test allow us to compare the run time of an equivalent program for different list types (programs named `*_full.c`). These tests also verify that all basic parts of the analysis (abstraction, simplifications) work as intended.
+- `ls_full.c`
+- `ls_full_return.c`
+- `ls_full_single_function.c`
+- `ls_cyclic.c`
+- `dls_full.c`
+- `nls_full.c`
+
+#table(
+  columns: 2,
+  table.header(
+    "Program",
+    "CPU Time",
+  ),
+
+  `ls_full.c`, "1.05 s",
+  `dls_full.c`, "13.1 s",
+  `nls_full.c`, "17.0 s",
+)
+
+As you can see in the table above, the analysis of programs using doubly linked lists and nested lists is roughly an order of magnitude longer then the analysis of singly linked lists.
+
+The third group tests the detection of different types of bugs. The only property being tested is that the errors are reported as the correct type of error, since for example the `valid-free` property is not violated in any of the SV-COMP benchmarks of the `LinkedLists` subset.
+- `ls_null_deref.c` -- detection of a possible null-pointer dereference (`valid-deref` property)
+- `ls_use_after_free.c` -- detection of an access to a freed allocation (`valid-deref` property)
+- `dls_double_free.c` -- detection of a double-free (`valid-free` property)
+- `nls_memory_leak.c` -- detection of a memory leak (`valid-memtrack` property)
+
+The last group tests some other interesting operations on singly linked lists. The benchmarked programs are correct.
+- `ls_merge_lists.c` -- program that constructs two lists and then joins one on the end of the other.
+- `reverse_list.c` -- program that reverses the order of a list.
+- `postfix_calculator.c` -- program that evaluates simple mathematical expressions in Reverse Polish (postfix) notation. The stack used to hold operands is implemented using a linked list.
+
+#table(
+  columns: 2,
+  table.header(
+    "Program",
+    "CPU Time",
+  ),
+
+  `ls_merge_lists.c`, "7.89 s",
+  `reverse_list.c`, "2.36 s",
+  `postfix_calculator.c`, "1.01 s",
+)
+
+As can be seen on the analysis times, the complexity of the program itself does not really affect the run time of the analysis. Even though the calculator is a larger program (147 lines of code) than most of the other tested programs, the analysis takes only a second. The complexity of the operations on the linked lists is what dictates the analysis time. In the case of the calculator, the only operations on the list are simple `push` and `pop` operations that do not even require the traversal of the list.
 
 == SV-COMP Benchmarks
+
+SV-COMP is a yearly competition for verification tools composed of many categories, each verifying a different property of programs. One of these categories is `MemSafety`, in which analyzers verify the properties described previously. However, the `MemSafety` category includes many kinds of programs, such as those working with arrays, on which our analyzer cannot succeed. Therefore, we restricted the set of benchmarks only to the `LinkedLists` subset of this category.
+
+When trying different settings of the loop unrolling (see @const_prop), it became clear that some tests will only finish when run with a higher count of unrolled iterations and other tests will only finish with a lower count. After some trial and error, we chose to run the analysis for one third of the maximum time with the the unrolling level set to 3. If the analysis timeouts, the second third is run with unrolling level of 2, and for the last third, no unrolling is done at all.
+
+Of the 134 total benchmarks, this tool correctly analyzes 80 programs. The full results can be seen in the table below, compared to PredatorHP @predatorHP (the best-performing analyzer of SV-COMP 2025 in the `LinkedLists` subcategory) and EVA @eva (static analyzer built into Frama-C).
+
+#table(
+  columns: 4,
+  table.header(
+    [Tests (134 total)],
+    [This work],
+    [PredatorHP],
+    [EVA],
+  ),
+
+  [Correct], [80], [124], [56],
+  [Correct (true)], [74], [96], [50],
+  [Correct (false)], [6], [28], [6],
+  [Incorrect (true)], [0], [0], [6],
+  [Incorrect (false)], [0], [0], [48],
+  [Timeout], [11], [10], [4],
+  [Unknown], [46], [0], [15],
+)
+
+In the table below, you can see that our analyzer outperforms all but two other tools in the `LinkedLists` subcategory:
+
+#table(
+  columns: 2,
+  table.header("Analyzer", "Correct Results"),
+  [PredatorHP], [124],
+  [CPAchecker], [118],
+  [nacpa (CPAchecker)], [118],
+  [*This work*], [*80*],
+  [symbiotic], [79],
+  [ESBMC], [78],
+  [CBMC], [77],
+  [Bubaak], [66],
+  [Graves-CPA], [64],
+  [PeSCo], [64],
+  [2LS], [60],
+  [Mopsa], [48],
+  [DIVINE], [42],
+  [sv-sanitizers], [17],
+  [ULTIMATE Automizer], [12],
+  [ULTIMATE Taipan], [8],
+  [ULTIMATE Kojak], [6],
+  [Goblint], [1],
+  [SVF-SVC], [0],
+  [Theta], [0],
+)
+
+The failing benchmarks can be divided into a the following categories.
+
+#table(
+  columns: 2,
+  table.header("Failure reason", "Number of\nbenchmarks"),
+  [Unsupported language features], [25],
+  [Timeout], [11],
+  [Unknown result], [18],
+)
+
+First, there are benchmarks that use code from the Linux kernel. This includes all benchmarks from the `ddv-machzwd` group and some benchmarks from `memsafety-broom`. These fail immediately since the code contains many types of pointer arithmetic which is unsupported. Some other tests outside of the kernel code also use unsupported language features and therefore fail at the preprocessing level.
+
+In the group of benchmarks that timeout, we can find a few problems. Most of these programs use structs that will not be detected as the correct list type. This is the case in #svcomp_link("forester-heap/dll-01-2.c"), #svcomp_link("list-ext3-properties/sll_of_sll_nondet_append-1.c") and others. Some programs implement lists that are simply not covered by the supported list types, for example #svcomp_link("heap-manipulation/tree-1.c"). In all these programs, the abstraction will never be able to create list predicates because the structures in the heap will be different than expected. A few programs that timeout do not have a fundamental reason why the analysis cannot succeed, such as #svcomp_link("memsafety-broom/sll-nested-sll-inline.c"). These will require further optimizations of the analyzer to pass.
+
+The rest of failed benchmarks are those, in which a property violation is detected, but because a nondeterministic condition has been reached during the analysis, an unknown result is reported. This problem is described in detail in @const_prop. However, constant propagation and loop unrolling cannot solve all of these cases, especially not those where relevant non-pointer data is stored in the list nodes themselves. This includes most red-black list benchmarks (such as #svcomp_link("forester-heap/dll-rb-cnstr_1-1.c")), or benchmarks where integer indices are used to manipulate list nodes (#svcomp_link("list-ext3-properties/sll_nondet_insert-2.c")).
+
+The analysis of most correct results is generally fast, 49 od the 80 correct results are analyzed under a second, 67 under 10 seconds. Because the total analysis time is split to thirds, in which the tool runs with different settings, you can see a group of results appear after one minute.
+
+#figure(
+  caption: [Number of correct results (x-axis) reached by this tool\
+    with increasing analysis time in seconds (y-axis)],
+  image("svcomp.png"),
+)
+
+Compared to PredatorHP which reaches 119 of its 124 correct results in under a second, the analysis time is overall worse. However, CPAchecker does not produce any results in less than 7 seconds, so compared to this tool, our analyzer is overall faster.
+
+#figure(
+  caption: [Number of correct results (x-axis) reached by PredatorHP\
+    with increasing analysis time in seconds (y-axis)],
+  image("predator_svcomp.png"),
+)
 
 == Astral Queries
 
 // measure how much time is spent evaluating formulae in astral
 
+Our analyzer is able to track how much time of each run is spent in the Astral solver. The table below shows three fastest and slowest SV-COMP benchmarks. Because the analyzer is killed during a timeout, it does not have a chance to print out the Astral time, therefore this table is only showing benchmarks that were completed during the first minute.
+
+#table(
+  columns: 4,
+  table.header("Benchmark", "Total\ntime (s)", "Astral\ntime (s)", "Analyzer\ntime (s)"),
+  [`sll2c_append_unequal.c`], [0.50], [0.00], [0.50],
+  [`sll_shallow_copy-1.c`], [0.51], [0.00], [0.51],
+  [`dll2c_prepend_equal.c`], [0.51], [0.02], [0.49],
+  table.cell(colspan: 4, $ dots.c $),
+  // [`dll_nullified-2.c`], [5.21], [4.68], [0.53],
+  // [`dll_circular_traversal-1.c`], [9.91], [9.41], [0.50],
+  // [`dll_circular_traversal-2.c`], [11.02], [10.52], [0.50],
+  // [`sll-shared-sll-after.c`], [11.36], [10.84], [0.52],
+  // [`sll-shared-sll-before.c`], [13.08], [12.46], [0.62],
+  [`dll-rb-cnstr_1-2.c`], [16.29], [15.64], [0.65],
+  [`sll-sorted-2.c`], [31.79], [31.65], [0.14],
+  [`dll-simple-white-blue-2.c`], [48.61], [48.13], [0.48],
+)
+
+As you can see from the table, the time spent in the analyzer itself is basically independent of the total run time. This includes initialization of the framework, preprocessing, and all work done during the dataflow analysis. Both the average and the median time spent in the analyzer is approximately 0.53 seconds. This clearly shows that to achieve faster analysis, it is pointless to optimize the code of the analyzer itself. The only thing that can meaningfully improve run times is a better usage of the solver through simplifications of formulae.
+
+There is usually a small number of queries that take up most of the time in spent in the solver. For example, during the analysis of `sll-shared-sll-after.c`, the top 8 slowest queries take 18.2 seconds of the total 19.9 seconds spent in the solver.
+
+#figure(
+  caption: [The times of evaluating queries when analyzing `sll-shared-sll-after.c`],
+  image("queries.svg"),
+)
+
+These queries are usually entailments, especially those with logic variables on the right side, as these must be existentially quantified. The longest query in this example (3.60 seconds) is the following entailment:
+
+$
+  nil = a * b != nil * A_b != nil * freed(b) * freed(A_b) \
+  entl\
+  a != nil * A_a != nil * freed(a) * freed(A_a) * f0 -> nil * ls(bound: 0, b, f0)
+$
+
+The other slow queries are similar to this one in fact that they are entailments with list predicates and logic variables on the right side.
+
 = Conclusion
+
 
 == Future Work
 
@@ -1000,3 +1196,6 @@ The second scoring does not affect whether the entailment will succeed or not, b
 #bibliography("references.bib")
 
 // TODO: nil a emp renderovat jaklo monospace
+// plugin_link musi obsahovat na konkretni tag/commit -> mozna gitea?
+// popsat tu vyjimku s verifier_nondet_int pro podminky
+// zkontrolovat/zmenit git tag co se zminuje v results
