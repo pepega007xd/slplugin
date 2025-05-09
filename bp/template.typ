@@ -9,6 +9,10 @@
     stroke: (x, y) => if y == 0 {
       (bottom: 0.7pt + black)
     },
+    column-gutter: 1em,
+    align: (x, y) => (
+      if x > 0 { center } else { left + horizon }
+    ),
   )
   // merges citations into one block: [1], [2] -> [1, 2]
   set cite(style: "springer-basic")
@@ -26,7 +30,10 @@
 
 #let plugin_link(filepath) = repo_link("https://github.com/pepega007xd/slplugin/blob/master/", filepath)
 
-#let svcomp_link(filepath) = repo_link("https://gitlab.com/sosy-lab/benchmarking/sv-benchmarks/-/blob/main/", filepath)
+#let svcomp_link(filepath) = repo_link(
+  "https://gitlab.com/sosy-lab/benchmarking/sv-benchmarks/-/tree/svcomp25/c/",
+  filepath,
+)
 
 // SL shortcuts
 
