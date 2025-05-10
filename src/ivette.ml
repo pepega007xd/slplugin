@@ -12,9 +12,9 @@ let print_state (fmt : Format.formatter) (loc : Printer_tag.localizable) : unit
   Option.iter (Formula.pp_state fmt) result
 
 let () =
-  Server.Kernel_ast.Information.register ~id:"slplugin.stmt_state"
-    ~label:"state" ~title:"final state"
-    ~descr:"final state reached for this statement" print_state
+  Server.Kernel_ast.Information.register ~id:"ktsn.stmt_state" ~label:"state"
+    ~title:"final state" ~descr:"final state reached for this statement"
+    print_state
 
 let print_type_heuristic (fmt : Format.formatter)
     (loc : Printer_tag.localizable) : unit =
@@ -37,7 +37,7 @@ let print_type_heuristic (fmt : Format.formatter)
   Option.iter (Format.pp_print_string fmt) result
 
 let () =
-  Server.Kernel_ast.Information.register ~id:"slplugin.type_heuristic"
+  Server.Kernel_ast.Information.register ~id:"ktsn.type_heuristic"
     ~label:"type heurisic" ~title:"type heuristic"
     ~descr:"result of type heurisitic (which list type is this?)"
     print_type_heuristic
@@ -58,7 +58,7 @@ let print_type_heuristic_on_field (fmt : Format.formatter)
   Option.iter (Format.pp_print_string fmt) result
 
 let () =
-  Server.Kernel_ast.Information.register ~id:"slplugin.field_type_heuristic"
+  Server.Kernel_ast.Information.register ~id:"ktsn.field_type_heuristic"
     ~label:"field type heurisic" ~title:"field type heuristic"
     ~descr:"result of field type heurisitic (which list field type is this?)"
     print_type_heuristic_on_field
@@ -70,5 +70,5 @@ let print_statement_id (fmt : Format.formatter) (loc : Printer_tag.localizable)
   | _ -> ()
 
 let () =
-  Server.Kernel_ast.Information.register ~id:"slplugin.statement_id"
+  Server.Kernel_ast.Information.register ~id:"ktsn.statement_id"
     ~label:"statement id" ~title:"statement id" print_statement_id

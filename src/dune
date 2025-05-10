@@ -15,8 +15,8 @@
 (include_subdirs unqualified)
 
 (library
-  (name slplugin)
-  (public_name frama-c-slplugin.core)
+  (name ktsn)
+  (public_name frama-c-ktsn.core)
   (modules :standard)
   (flags
     :standard
@@ -42,7 +42,7 @@
 )
 
 (plugin
-  (name slplugin)
-  (libraries frama-c-slplugin.core)
+  (name ktsn)
+  (libraries frama-c-ktsn.core)
   (site (frama-c plugins))
 )

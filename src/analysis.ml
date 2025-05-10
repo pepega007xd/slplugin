@@ -3,7 +3,7 @@ open Cil_types
 open Common
 open Dataflow2
 
-let name = "slplugin"
+let name = "ktsn"
 let debug = false
 
 type t = Formula.state

@@ -10,10 +10,10 @@ class Tool(benchexec.tools.template.BaseTool2):
         return "0.1"
 
     def name(self):
-        return "slplugin"
+        return "KTSN"
 
     def project_url(self):
-        return "https://github.com/pepega007xd/slplugin"
+        return "https://github.com/pepega007xd/ktsn"
 
     def get_direct_args(self, input_file):
         return f"frama-c -sl -sl-benchmark-mode -sl-no-catch-exceptions -sl-astral-encoding Bitvectors -sl-backend-solver Bitwuzla -sl-edge-deduplication -sl-simple-join {input_file}"

@@ -1,8 +1,8 @@
 <?xml version="1.0"?>
 <!DOCTYPE benchmark PUBLIC "+//IDN sosy-lab.org//DTD BenchExec benchmark 2.3//EN" "https://www.sosy-lab.org/benchexec/benchmark-2.3.dtd">
 <benchmark 
-  tool="slplugin.slplugin"
-  displayName="slplugin"
+  tool="ktsn.ktsn"
+  displayName="KTSN"
   timelimit="3 min"
   memlimit="1500 MB"
 >

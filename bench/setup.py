@@ -2,6 +2,6 @@
 
 from distutils.core import setup
 
-setup(name='slplugin',
-      packages=['slplugin'],
-     )
+setup(name='ktsn',
+      packages=['ktsn'],
+      )
