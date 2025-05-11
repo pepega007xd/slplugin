@@ -1,9 +1,8 @@
 #let project(body) = {
-  set page(numbering: "1", number-align: center)
   set text(font: "New Computer Modern", lang: "en")
   show math.equation: set text(weight: 400)
-  set heading(numbering: "1.1")
   set par(justify: true)
+
   show table.cell.where(y: 0): strong
   set table(
     stroke: (x, y) => if y == 0 {
@@ -14,21 +13,51 @@
       if x > 0 { center } else { left + horizon }
     ),
   )
-  // merges citations into one block: [1], [2] -> [1, 2]
+
+  // merge citations into one block: [1], [2] -> [1, 2]
   set cite(style: "springer-basic")
 
   // do not break lines after "a"
   show " a ": [ a~]
 
+  // show figure caption above tables in figures
+  show figure.where(kind: table): set figure.caption(position: top)
+
+  // all top-level chapters start on new page
+  show heading.where(depth: 1, numbering: "1.1"): body => {
+    pagebreak()
+    body
+  }
+
+  // do not break lines in inline equations
+  show math.equation.where(block: false): box
+
   body
 }
+
+#let czech_text(content) = {
+  set text(lang: "cz")
+
+  show " k ": [ s~]
+  show " s ": [ s~]
+  show " v ": [ s~]
+  show " z ": [ s~]
+  show " o ": [ s~]
+  show " u ": [ s~]
+  show " a ": [ s~]
+  show " i ": [ s~]
+
+  content
+}
+
+// links to files in ktsn repo and svcomp benchmarks
 
 #let repo_link(repo_url, filepath) = link(
   repo_url + filepath,
   raw(filepath),
 )
 
-#let plugin_link(filepath) = repo_link("https://github.com/pepega007xd/slplugin/blob/master/", filepath)
+#let plugin_link(filepath) = repo_link("https://github.com/pepega007xd/ktsn/tree/final_code/", filepath)
 
 #let svcomp_link(filepath) = repo_link(
   "https://gitlab.com/sosy-lab/benchmarking/sv-benchmarks/-/tree/svcomp25/c/",
@@ -39,33 +68,50 @@
 
 #let gneg = $ and_not $
 
+#let sf(text) = raw(text)
+
 #let ls(bound: none, x, y) = if bound == none {
-  $"ls"(#x, #y)$
+  $sf("ls")(#x, #y)$
 } else {
-  $"ls"_(#bound+)(#x, #y)$
+  $sf("ls")_(#bound+)(#x, #y)$
 }
 
 #let dls(bound: none, x, y, p, n) = if bound == none {
-  $"dls"(#x, #y, #p, #n)$
+  $sf("dls")(#x, #y, #p, #n)$
 } else {
-  $"dls"_(#bound+)(#x, #y, #p, #n)$
+  $sf("dls")_(#bound+)(#x, #y, #p, #n)$
 }
 
 #let nls(bound: none, x, y, z) = if bound == none {
-  $"nls"(#x, #y, #z)$
+  $sf("nls")(#x, #y, #z)$
 } else {
-  $"nls"_(#bound+)(#x, #y, #z)$
+  $sf("nls")_(#bound+)(#x, #y, #z)$
 }
 
-#let freed(x) = $"freed"(#x)$
+#let freed(x) = $sf("freed")(#x)$
 
 #let fields(..x) = $angle.l #(x.pos().join(", ")) angle.r$
 
 #let entl = sym.tack.double
 
-#let nil = "nil"
-#let emp = "emp"
+#let nil = `nil`
+#let emp = `emp`
 
 #let f0 = $f'_0$
 #let f1 = $f'_1$
 #let f2 = $f'_2$
+#let f3 = $f'_3$
+#let f4 = $f'_4$
+#let f5 = $f'_5$
+
+#let state(..params) = {
+  $
+    or.big
+    vec(
+      delim: "[",
+      ..params
+    )
+  $
+}
+
+#let min = `min`
