@@ -1,6 +1,8 @@
 open Cil_types
-open Cil
 
+(** This module implements and registers callbacks for showing data in Ivette *)
+
+(** Prints the current state associated with a statement when hovered over *)
 let print_state (fmt : Format.formatter) (loc : Printer_tag.localizable) : unit
     =
   let result =
@@ -11,11 +13,7 @@ let print_state (fmt : Format.formatter) (loc : Printer_tag.localizable) : unit
   in
   Option.iter (Formula.pp_state fmt) result
 
-let () =
-  Server.Kernel_ast.Information.register ~id:"ktsn.stmt_state" ~label:"state"
-    ~title:"final state" ~descr:"final state reached for this statement"
-    print_state
-
+(** Prints the detected list type for a structure *)
 let print_type_heuristic (fmt : Format.formatter)
     (loc : Printer_tag.localizable) : unit =
   let get_struct_type (typ : typ) =
@@ -36,12 +34,7 @@ let print_type_heuristic (fmt : Format.formatter)
   in
   Option.iter (Format.pp_print_string fmt) result
 
-let () =
-  Server.Kernel_ast.Information.register ~id:"ktsn.type_heuristic"
-    ~label:"type heurisic" ~title:"type heuristic"
-    ~descr:"result of type heurisitic (which list type is this?)"
-    print_type_heuristic
-
+(** Prints the detected field type for a field of a structure *)
 let print_type_heuristic_on_field (fmt : Format.formatter)
     (loc : Printer_tag.localizable) : unit =
   let result =
@@ -58,17 +51,16 @@ let print_type_heuristic_on_field (fmt : Format.formatter)
   Option.iter (Format.pp_print_string fmt) result
 
 let () =
+  Server.Kernel_ast.Information.register ~id:"ktsn.stmt_state" ~label:"state"
+    ~title:"final state" ~descr:"final state reached for this statement"
+    print_state;
+
+  Server.Kernel_ast.Information.register ~id:"ktsn.type_heuristic"
+    ~label:"type heurisic" ~title:"type heuristic"
+    ~descr:"result of type heurisitic (which list type is this?)"
+    print_type_heuristic;
+
   Server.Kernel_ast.Information.register ~id:"ktsn.field_type_heuristic"
     ~label:"field type heurisic" ~title:"field type heuristic"
     ~descr:"result of field type heurisitic (which list field type is this?)"
     print_type_heuristic_on_field
-
-let print_statement_id (fmt : Format.formatter) (loc : Printer_tag.localizable)
-    : unit =
-  match loc with
-  | Printer_tag.PStmt (_, stmt) -> Format.pp_print_int fmt stmt.sid
-  | _ -> ()
-
-let () =
-  Server.Kernel_ast.Information.register ~id:"ktsn.statement_id"
-    ~label:"statement id" ~title:"statement id" print_statement_id

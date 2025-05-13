@@ -4,8 +4,14 @@ open Astral
 open Constants
 open Common
 
-type field_type = Next | Prev | Top | Other of string | Data
+(** This module implements the analysis of C types that determines, which list
+    types they represent *)
+
+(** Classification of structs *)
 type struct_type = Sll | Dll | Nl | Struct
+
+(** Classification of struct fields *)
+type field_type = Next | Prev | Top | Other of string | Data
 
 let simplify_type (typ : typ) : typ =
   typ |> unrollTypeDeep |> typeDeepDropAllAttributes
@@ -43,6 +49,7 @@ let rec get_self_and_sll_fields (structure : compinfo) :
   in
   (self_pointers, sll_pointers)
 
+(** Determines, which list type a structure represents based on its fields *)
 and get_struct_type (structure : compinfo) : struct_type =
   let self_pointers, sll_pointers = get_self_and_sll_fields structure in
 
@@ -52,6 +59,7 @@ and get_struct_type (structure : compinfo) : struct_type =
   | [ _; _ ], [] -> Dll
   | _ -> Struct
 
+(** Determines the type of field in the context of lists *)
 let get_field_type (field : fieldinfo) : field_type =
   let self_pointers, sll_pointers = get_self_and_sll_fields field.fcomp in
 
@@ -112,6 +120,7 @@ let get_struct_def (sort : Sort.t) : MemoryModel.StructDef.t =
   |> Seq.find (fun (s, _) -> sort = s)
   |> Option.get |> snd
 
+(** Converts the type of a variable into its sort, and creates an SL variable *)
 let varinfo_to_var (varinfo : Cil_types.varinfo) : SL.Variable.t =
   match varinfo.vname with
   | name when name = null_var_name -> SL.Variable.nil
@@ -123,6 +132,7 @@ let varinfo_to_var (varinfo : Cil_types.varinfo) : SL.Variable.t =
       let sort = varinfo.vtype |> get_type_info |> fst in
       SL.Variable.mk varinfo.vname sort
 
+(** Memoizes list types inside [get_type_info] *)
 let process_types =
   object
     inherit Visitor.frama_c_inplace
@@ -132,6 +142,7 @@ let process_types =
       SkipChildren
   end
 
+(** Generates struct definitions for generic structs and sets them in the solver*)
 let process_types (file : file) =
   Visitor.visitFramacFileFunctions process_types file;
 

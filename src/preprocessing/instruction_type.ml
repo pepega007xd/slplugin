@@ -1,5 +1,8 @@
 open Cil_types
 
+(** This module defines the type that representes the basic instructions, for
+    which the rest of the analysis is implemented *)
+
 type instr_type =
   | Assign_simple of varinfo * varinfo
   | Assign_rhs_field of varinfo * varinfo * fieldinfo
@@ -11,6 +14,8 @@ type instr_type =
   | ComplexInstr
   | Ignored
 
+(** Checks if an instruction is a basic instruction, a relevant composite
+    instruction, or an irrelevant instruction *)
 let get_instr_type (instr : instr) : instr_type =
   let get_func_params (params : exp list) : varinfo list option =
     let vars =
@@ -55,8 +60,8 @@ let get_instr_type (instr : instr) : instr_type =
   | Call (lval_opt, func, params, _) -> (
       match (lval_opt, func.enode, get_func_params params) with
       (* func(...) *)
-      | None, Lval (Var func, NoOffset), Some params ->
-          Call (None, func, params) (* var = func(...) *)
+      | None, Lval (Var func, NoOffset), Some params -> Call (None, func, params)
+      (* var = func(...) *)
       | Some (Var lhs, NoOffset), Lval (Var func, NoOffset), Some params ->
           Call (Some lhs, func, params)
       | _ -> ComplexInstr)

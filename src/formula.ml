@@ -1,6 +1,9 @@
 open Astral
 open Common
 
+(** This module defines the types representing SL formulas in the analyzer, and
+    a set of functions for their manipulation *)
+
 type var = SL.Variable.t
 type ls = { first : var; next : var; min_len : int }
 type dls = { first : var; last : var; prev : var; next : var; min_len : int }
@@ -23,6 +26,7 @@ type atom =
 
 type t = atom list
 
+(* Exceptions used to report bugs in the analyzed program *)
 exception Invalid_deref of var * t
 exception Invalid_free of var * t
 
@@ -95,7 +99,7 @@ let pp_state (fmt : Format.formatter) (state : state) =
       Format.fprintf fmt "\n")
     state
 
-(** Conversion to and from Astral type *)
+(** Conversion to Astral's types *)
 
 let to_astral (f : t) : SL.t =
   let v = SL.Term.of_var in
@@ -240,6 +244,7 @@ let swap_vars (var1 : var) (var2 : var) (f : t) =
   |> substitute ~var:var2 ~by:var1
   |> substitute ~var:tmp_name ~by:var2
 
+(** sets the names of fresh variables to a sequence of [!0], [!1], ... *)
 let standardize_fresh_var_names ?(start_from : int = 0) (f : t) : t =
   let vars = get_fresh_vars f |> List.sort_uniq SL.Variable.compare in
   let names =
@@ -543,6 +548,8 @@ let rec split_by_reachability_from ((spatial, rest) : t * t) (var : var) : t * t
         targets
   | None -> (spatial, rest)
 
+(** Splits a formula into a reachable and an unreachable subformula by the
+    reachability from a set of variables *)
 let split_by_reachability (vars : var list) (f : t) : t * t =
   let reachable_spatials, rest =
     List.fold_left split_by_reachability_from ([], f) vars
@@ -575,13 +582,14 @@ let split_by_reachability (vars : var list) (f : t) : t * t =
   in
   (reachable, unreachable)
 
-(** returns true when variable appears only once in the formula, [Distinct] and
-    [Freed] atoms are ignored *)
+(** Counts the occurrences of a variable in spatial atoms and equalities,
+    [Distinct] and [Freed] atoms are ignored *)
 let count_relevant_occurences (var : var) (f : t) : int =
   f
   |> List.filter (function Distinct _ | Freed _ -> false | _ -> true)
   |> get_vars |> Common.list_count var
 
+(** Converts a formula into a canonical form by sorting variables and atoms *)
 let canonicalize (f : t) : t =
   let c = SL.Variable.compare in
   let vars = f |> get_vars |> List.sort_uniq c in
@@ -610,6 +618,8 @@ let sum_of_bounds (with_ptos : bool) (f : t) : int =
     result - 1
   else result
 
+(** Sorts two formulas so that it is possible that the entailment of these
+    formulas will hold *)
 let compare_bounds (lhs : t) (rhs : t) : int =
   let with_ptos = sum_of_bounds true lhs - sum_of_bounds true rhs in
   let without_ptos = sum_of_bounds false lhs - sum_of_bounds false rhs in

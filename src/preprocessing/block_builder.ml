@@ -2,6 +2,11 @@ open Cil_types
 open Cil
 open Common
 
+(** This module implements the splitting of expressions into a series of basic
+    assignments *)
+
+(** This functions takes a context and returns the functions for splitting
+    expressions *)
 let get_block_builder (func : fundec) (block : block) (location : location) =
   let var_offset_to_exp (var : varinfo) (offset : offset) : exp =
     let inner_exp = evar ~loc:location var in

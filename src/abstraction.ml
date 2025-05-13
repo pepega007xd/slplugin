@@ -1,8 +1,13 @@
 open Common
 
+(** This module implements the abstraction that turns chains of pointer atoms
+    into list predicates *)
+
+(** checks that [var] is a fresh variable unreachable from the formula *)
 let is_unique_fresh (var : Formula.var) (formula : Formula.t) : bool =
   is_fresh_var var && Formula.count_relevant_occurences var formula = 2
 
+(* checks that a spatial atom is present in a formula *)
 let is_in_formula (src : Formula.var) (dst : Formula.var)
     (field : Types.field_type) (formula : Formula.t) : bool =
   Formula.get_spatial_atom_from_first_opt src formula |> function
@@ -97,8 +102,9 @@ let convert_to_dls (formula : Formula.t) : Formula.t =
 
 (** NLS abstraction *)
 
-(* returns modified formula and new [next] var if join succeeded *)
-let join_sublists (lhs_source : Formula.var) (rhs_source : Formula.var)
+(** tries to unify the sublists of two nls atoms, returns modified formula and
+    new [next] var if join succeeded *)
+let unify_sublists (lhs_source : Formula.var) (rhs_source : Formula.var)
     (formula : Formula.t) : (Formula.t * Formula.var) option =
   let lhs = Formula.get_spatial_atom_from lhs_source formula in
   let rhs = Formula.get_spatial_atom_from rhs_source formula in
@@ -134,12 +140,12 @@ let join_sublists (lhs_source : Formula.var) (rhs_source : Formula.var)
   | NLS _, NLS _, _, _ when lhs_next = rhs_next -> Some (formula, lhs_next)
   | _ -> None
 
-(* try both directions *)
+(* tries to unify the sublists in both directions *)
 let join_sublists (lhs_source : Formula.var) (rhs_source : Formula.var)
     (formula : Formula.t) : (Formula.t * Formula.var) option =
-  join_sublists lhs_source rhs_source formula |> function
+  unify_sublists lhs_source rhs_source formula |> function
   | Some res -> Some res
-  | None -> join_sublists rhs_source lhs_source formula
+  | None -> unify_sublists rhs_source lhs_source formula
 
 let convert_to_nls (formula : Formula.t) : Formula.t =
   let atom_to_nls (atom : Formula.atom) : Formula.nls option =
@@ -184,7 +190,7 @@ let convert_to_nls (formula : Formula.t) : Formula.t =
 module Tests_LS = struct
   open Testing
 
-  (* DLS abstraction *)
+  (* LS abstraction *)
 
   let%test "abstraction_ls_nothing" =
     let input = [ PointsTo (x, LS_t y'); PointsTo (y', LS_t z) ] in
@@ -269,13 +275,13 @@ module Tests_LS = struct
     let result = convert_to_ls input in
     let expected = [ mk_ls x nil 1 ] in
     assert_eq result expected
-
-  (* DLS abstraction *)
 end
 
 module Tests_DLS = struct
   open Testing
   open DLS (* test vars with dls sort *)
+
+  (* DLS abstraction *)
 
   let%test "abstraction_dls_nothing" =
     let input =
@@ -394,6 +400,8 @@ end
 
 module Tests_NLS = struct
   open Testing
+
+  (* NLS abstraction *)
 
   let%test "abstraction_nls_nothing" =
     let input =

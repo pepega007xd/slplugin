@@ -2,8 +2,12 @@ open Astral
 open Cil_types
 open Common
 
+(** This module implements the transfer function for function calls, including
+    the swiching of the analysis context and function summaries *)
+
 type summary_input = Kernel_function.t * Formula.t
 
+(* Context used for the analysis of a single function *)
 type function_context = {
   results : (Cil_types.stmt, Formula.state) Hashtbl.t;
   loop_cycles : (stmt, int) Hashtbl.t;
@@ -30,7 +34,9 @@ let get_anchor (var : Formula.var) : Formula.var =
   let name = "A_" ^ SL.Variable.get_name var in
   SL.Variable.mk name (SL.Variable.get_sort var)
 
-let run_analysis (func : Kernel_function.t) (formula : Formula.t) :
+(** Creates a new context, runs the analysis recursively of the called function,
+    and then restores the original context *)
+let run_function_analysis (func : Kernel_function.t) (formula : Formula.t) :
     Formula.state =
   let first_stmt = Kernel_function.find_first_stmt func in
   let return_stmt = Kernel_function.find_return func in
@@ -50,12 +56,13 @@ let run_analysis (func : Kernel_function.t) (formula : Formula.t) :
 
   result_state
 
+(** Implements the caching of function summaries *)
 let get_result_state (func : Kernel_function.t) (formula : Formula.t) :
     Formula.state =
   Hashtbl.find_opt summaries (func, formula) |> function
   | Some result -> result
   | None ->
-      let result_state = run_analysis func formula in
+      let result_state = run_function_analysis func formula in
       Hashtbl.add summaries (func, formula) result_state;
       result_state
 
@@ -139,6 +146,8 @@ let func_call (args : Formula.var list) (func : varinfo) (formula : Formula.t)
     warning "skipping function %s (no definition)" func.vname;
     [ formula ]
 
+(** Merges results of analyses of all functions into the current [results]
+    table, so that it can be displayed by Ivette *)
 let merge_all_results () =
   List.iter
     (Hashtbl.iter (Hashtbl.replace !function_context.results))

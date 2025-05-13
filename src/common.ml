@@ -1,6 +1,9 @@
 open Config
 open Astral
 
+(** This modules contains functions and variables used by multiple other modules
+    of the analyzer to avoid cyclic dependencies *)
+
 (** Astral solver instance *)
 let solver = ref (Solver.init ())
 
@@ -19,9 +22,9 @@ let is_fresh_var (var : SL.Variable.t) : bool =
 let list_count (elem : 'a) (list : 'a List.t) : int =
   list |> List.filter (( = ) elem) |> List.length
 
-(* maps a function on each pair in list, if the function returns [Some], 
-   the pair of values is replaced by the returned value,
-   otherwise the pair is left in the list *)
+(** Maps a function on each pair in list, if the function returns [Some], the
+    pair of values is replaced by the returned value, otherwise the pair is left
+    in the list *)
 let rec list_map_pairs (f : 'a -> 'a -> 'a option) (list : 'a list) : 'a list =
   let rec map_single (item : 'a) (list : 'a list) : 'a list =
     match list with

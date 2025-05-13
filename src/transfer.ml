@@ -1,6 +1,7 @@
 open Astral
-open Common
-open Constants
+
+(** This module implements the transfer function for most of the basic
+    instructions defined in [Instruction_type] *)
 
 (** transfer function for [var = var;] *)
 let assign (lhs : Formula.var) (rhs : Formula.var) (formula : Formula.t) :
@@ -119,43 +120,3 @@ let call (lhs_opt : Formula.var option) (func : Cil_types.varinfo)
           raise @@ Formula.Invalid_free (var, formula)
       | e -> raise e)
   | _, args -> Func_call.func_call args func formula lhs_opt
-
-module Tests = struct
-  open Testing
-
-  (* let%test_unit "assign" = *)
-  (*   let input = SL.mk_star [ SL.mk_pto x z; SL.mk_pto y y' ] in *)
-  (*   (* x = y; *) *)
-  (*   let result = Simplifier.simplify @@ assign x_var y_var input in *)
-  (*   let expected = *)
-  (*     SL.mk_star *)
-  (*       [ SL.mk_pto (mk_var "x!0") z; SL.mk_pto y y'; SL.mk_eq x y ] *)
-  (*   in *)
-  (*   assert_eq result expected *)
-
-  (* let%test_unit "assign_lhs_deref" = *)
-  (*   let input = SL.mk_star [ SL.mk_pto x z ] in *)
-  (*   (* *x = y; *) *)
-  (*   let result = assign_lhs_field x_var y_var input in *)
-  (*   let expected = SL.mk_star [ SL.mk_pto x y ] in *)
-  (*   assert_eq_list result [ expected ] *)
-  (**)
-  (* let%test_unit "assign_lhs_deref2" = *)
-  (*   let input = SL.mk_star [ SL.mk_pto x z; SL.mk_pto z z' ] in *)
-  (*   (* *x = y; *) *)
-  (*   let result = assign_lhs_field x_var y_var input in *)
-  (*   let expected = SL.mk_star [ SL.mk_pto x y; SL.mk_pto z z' ] in *)
-  (*   assert_eq_list result [ expected ] *)
-
-  (* let%test_unit "assign_rhs_deref" = *)
-  (*   let input = SL.mk_star [ SL.mk_pto x z; SL.mk_pto y y' ] in *)
-  (*   (* x = *y; *) *)
-  (*   let result = *)
-  (*     List.map Simplifier.simplify (assign_rhs_field x_var y_var input) *)
-  (*   in *)
-  (*   let expected = *)
-  (*     SL.mk_star *)
-  (*       [ SL.mk_pto (mk_var "x!1") z; SL.mk_pto y y'; SL.mk_eq x y' ] *)
-  (*   in *)
-  (*   assert_eq_list result [ expected ] *)
-end

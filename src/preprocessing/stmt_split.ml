@@ -2,7 +2,10 @@ open Cil_types
 open Cil
 open Common
 
-(* breaks down a complex assignment stmt into a series of simpler ones *)
+(** This module implements the splitting of assignments and function calls into
+    basic instructions *)
+
+(** Break down a complex assignment stmt into a series of simpler ones *)
 let split_assignment (func : fundec) (lhs : lval) (rhs : exp)
     (location : location) : stmtkind =
   let block = mkBlock [] in

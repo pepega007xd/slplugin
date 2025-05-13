@@ -1,12 +1,12 @@
 .DEFAULT_GOAL := benchmark
-.PHONY: benchmark verifit results results-diff run run-direct
+.PHONY: benchmark verifit results results-diff run run-direct clean bp-archive
 
 benchmark:
 	pip install bench/
-	dune b && dune install
+	dune build && dune install
 	rm -rf results/*
-	systemd-run --user --scope --slice=benchexec -p Delegate=yes benchexec \
-		bench/ktsn.xml --numOfThreads 8
+	systemd-run --user --scope --slice=benchexec -p Delegate=yes \
+		benchexec bench/ktsn.xml --numOfThreads 8
 
 verifit:
 	rm -rf results/*
@@ -32,13 +32,27 @@ FILE := $(word 2, $(MAKECMDGOALS))
 ARGS := $(wordlist 3, $(words $(MAKECMDGOALS)), $(MAKECMDGOALS))
 
 run:
-	dune b && dune install
+	dune build && dune install
 	ivette -scf -ulevel=3 $(FILE) -then-replace \
-	-sl -sl-msg-key '*' -sl-benchmark-mode -sl-astral-encoding Bitvectors -sl-backend-solver Bitwuzla -sl-edge-deduplication -sl-simple-join $(ARGS)
+		-sl -sl-msg-key '*' -sl-benchmark-mode -sl-astral-encoding Bitvectors \
+		-sl-backend-solver Bitwuzla -sl-edge-deduplication -sl-simple-join $(ARGS)
 
 run-direct:
-	dune b && dune install
-	ivette -sl -sl-msg-key '*' -sl-benchmark-mode -sl-astral-encoding Bitvectors -sl-backend-solver Bitwuzla -sl-edge-deduplication -sl-simple-join $(ARGS) $(FILE)
+	dune build && dune install
+	ivette -sl -sl-msg-key '*' -sl-benchmark-mode \
+		-sl-astral-encoding Bitvectors -sl-backend-solver Bitwuzla \
+		-sl-edge-deduplication -sl-simple-join $(ARGS) $(FILE)
 
 %:
 	@:
+
+clean:
+	rm -rf _build bp/main.pdf bp/template.pdf bp-archive bench/ktsn.egg-info bench/build
+
+bp-archive: clean
+	mkdir bp-archive
+	cp -r bp src bench test_programs README.md dune-project Makefile bp-archive
+	mv bp-archive/bp/thesis.pdf bp-archive
+	mkdir bp-archive/excel_at_fit
+	cp excel_poster/poster.pdf bp-archive/excel_at_fit/poster.pdf
+	cp excel_abstract/abstrakt.pdf bp-archive/excel_at_fit/abstract.pdf

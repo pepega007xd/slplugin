@@ -2,6 +2,9 @@ open Cil_types
 open Cil
 open Constants
 
+(** This module implements the preprocessing of conditions into comparisons of
+    two pointer variables *)
+
 let nondet_int_vars : string list ref = ref []
 
 let collect_nondet_int_vars =
@@ -57,10 +60,11 @@ let split_conditions =
           let new_if condition =
             If (new_exp ~loc:location condition, th, el, location)
           in
+          (* unknown conditions -> [_const] *)
           let unknown_condition = new_if (Lval (Var const_var, NoOffset)) in
           let new_stmtkind =
             match condition.enode with
-            (* nondeterministic conditions *)
+            (* conditions guaranteed to be nondeterministic -> [_nondet] *)
             | Lval (Var var, NoOffset)
             | UnOp (LNot, { enode = Lval (Var var, NoOffset); _ }, _)
               when List.mem var.vname !nondet_int_vars ->

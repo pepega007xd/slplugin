@@ -1,3 +1,5 @@
+(** This module contains the definitions of the command-line parameters *)
+
 module Self = Plugin.Register (struct
   let name = "Shape analysis"
   let shortname = "sl"

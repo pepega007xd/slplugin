@@ -1,6 +1,9 @@
 open Astral
 include Formula
 
+(** This module contains utility function for unit tests, and also unit tests
+    themselves for the [Formula] module *)
+
 let print_warn (msg : string) =
   prerr_string "\027[31;1m";
   prerr_string msg;

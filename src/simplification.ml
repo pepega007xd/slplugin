@@ -49,7 +49,8 @@ let remove_irrelevant_vars (formula : Formula.t) : Formula.t =
       | _ -> true)
     formula
 
-(* removes all spatial atoms where the source variable doesn't appear anywhere else in the formula *)
+(** removes all spatial atoms where the source variable doesn't appear anywhere
+    else in the formula *)
 let remove_leaks (formula : Formula.t) : Formula.t =
   let is_fresh_unique (var : Formula.var) : bool =
     is_fresh_var var && Formula.count_relevant_occurences var formula = 1
@@ -58,7 +59,6 @@ let remove_leaks (formula : Formula.t) : Formula.t =
     List.partition
       (function
         | Formula.PointsTo (src, _) -> is_fresh_unique src
-        (* TODO: remove cyclic lists *)
         | Formula.LS ls -> is_fresh_unique ls.first
         | Formula.DLS dls ->
             is_fresh_unique dls.first && is_fresh_unique dls.last
@@ -82,6 +82,8 @@ let convert_vars_to_fresh (vars : Formula.var list) (formula : Formula.t) :
     (fun formula var -> Formula.substitute_by_fresh var formula)
     formula vars
 
+(** Iterates through all pairs of formulas and joins formulas that differ in a
+    length bound of a single spatial atom *)
 let generalize_similar_formulas (lhs : Formula.t) (rhs : Formula.t) :
     Formula.t option =
   let rest, first = List.partition (fun atom -> List.mem atom rhs) lhs in
@@ -114,6 +116,8 @@ let remove_ptos_from_vars (vars : Formula.var list) (formula : Formula.t) =
       formula |> Formula.make_var_explicit_src var |> Formula.remove_atom atom)
     formula vars
 
+(** Removes lists where the start and the end are syntactically equivalent, adds
+    additional equalities that are known to be true *)
 let remove_empty_lists (formula : Formula.t) : Formula.t =
   List.fold_left
     (fun formula -> function
@@ -144,40 +148,4 @@ module Tests = struct
   let%test "remove_irrelevant_vars_2" =
     let f = [ Freed x'; Distinct (nil, x') ] |> remove_irrelevant_vars in
     assert_eq f []
-
-  (* let%test_unit "reduce_equiv_classes" = *)
-  (*   let input = SSL.mk_star [ SSL.mk_eq x y'; SSL.mk_eq y' nil ] in *)
-  (*   let result = reduce_equiv_classes input in *)
-  (*   let expected = SSL.mk_star [ SSL.mk_eq x nil ] in *)
-  (*   assert_eq result expected *)
-  (**)
-  (* let%test_unit "reduce_equiv_classes" = *)
-  (*   let input = *)
-  (*     SSL.mk_star [ SSL.mk_eq x y'; SSL.mk_eq y' z'; SSL.mk_eq z' z ] *)
-  (*   in *)
-  (*   let result = reduce_equiv_classes input in *)
-  (*   let expected = SSL.mk_star [ SSL.mk_eq x z ] in *)
-  (*   assert_eq result expected *)
-  (**)
-  (* let%test_unit "reduce_equiv_classes" = *)
-  (*   let input = *)
-  (*     SSL.mk_star [ SSL.mk_eq x' y'; SSL.mk_eq x x'; SSL.mk_eq y y' ] *)
-  (*   in *)
-  (*   let result = reduce_equiv_classes input in *)
-  (*   let expected = SSL.mk_star [ SSL.mk_eq x y ] in *)
-  (*   assert_eq result expected *)
-  (**)
-  (* let%test_unit "reduce_equiv_classes" = *)
-  (*   let input = SSL.mk_star [ SSL.mk_eq x' y'; SSL.mk_eq y' z' ] in *)
-  (*   let result = reduce_equiv_classes input in *)
-  (*   let expected = SSL.mk_star [] in *)
-  (*   assert_eq result expected *)
-  (**)
-  (* let%test_unit "reduce_equiv_classes" = *)
-  (*   let input = *)
-  (*     SSL.mk_star [ SSL.mk_pto x x'; SSL.mk_eq x' y'; SSL.mk_ls y' z ] *)
-  (*   in *)
-  (*   let result = reduce_equiv_classes input in *)
-  (*   let expected = SSL.mk_star [ SSL.mk_pto x x'; SSL.mk_ls x' z ] in *)
-  (*   assert_eq result expected *)
 end

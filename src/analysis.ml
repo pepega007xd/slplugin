@@ -3,6 +3,9 @@ open Cil_types
 open Common
 open Dataflow2
 
+(** This module contains the implementation of the dataflow analysis, this
+    module implements the [Dataflow2.ForwardsTransfer] interface *)
+
 let name = "ktsn"
 let debug = false
 
@@ -63,10 +66,10 @@ let doInstr _ (instr : instr) (prev_state : t) : t =
     Formula.pp_state new_state;
   new_state
 
-(* [state] comes from doInstr, so it is actually the new state *)
 let computeFirstPredecessor _ state = state
 
-let deduplicate_states (state : t) : t =
+(** Removes formulas that are covered by other formulas using entailment *)
+let deduplicate_formulas (state : t) : t =
   let is_covered current to_keep =
     if Config.Simple_join.get () then
       List.exists
@@ -83,12 +86,13 @@ let deduplicate_states (state : t) : t =
          if is_covered current to_keep then to_keep else current :: to_keep)
        []
 
-(* iterate over all formulas of new_state [phi], and each one that doesn't satisfy
-   (phi => old) has to be added to [old]. If old is not changed, None is returned. *)
+(** Iterate through all formulas of new_state [phi], and each one that doesn't
+    satisfy (phi => old) has to be added to [old]. If old is not changed, None
+    is returned. *)
 let combinePredecessors _ ~old:(old_state : t) (new_state : t) : t option =
   Async.yield ();
 
-  let joined_state = deduplicate_states @@ new_state @ old_state in
+  let joined_state = deduplicate_formulas @@ new_state @ old_state in
 
   let state_changed joined_state old_state =
     if Config.Simple_join.get () then
@@ -115,7 +119,7 @@ let combinePredecessors _ ~old:(old_state : t) (new_state : t) : t option =
 
 let unknown_condition_reached = ref false
 
-(* we need to filter the formulas of [state] for each branch to only those,
+(* Filter the formulas of [state] for each branch to only those,
    which are satisfiable in each of the branches *)
 let doGuard _ (condition : exp) (state : t) : t guardaction * t guardaction =
   Async.yield ();
@@ -169,10 +173,12 @@ let get_inner_loops (block : block) =
   ignore (Cil.visitCilBlock visitor block);
   !loops
 
-(* we always want to continue with the analysis *)
+(** Decides whether to stop the analysis *)
 let doStmt (stmt : stmt) (_ : t) : t stmtaction =
   let loop_cycles = !Func_call.function_context.loop_cycles in
   match stmt.skind with
+  (* stop when reaching the maximum number of loop 
+      iterations in underapproximation mode *)
   | Loop (_, block, _, _, _) when Config.Max_loop_cycles.is_set () -> (
       match Hashtbl.find_opt loop_cycles stmt with
       | Some x when x > 0 ->
@@ -198,7 +204,7 @@ let doStmt (stmt : stmt) (_ : t) : t stmtaction =
       | _ -> SDefault)
   | _ -> SDefault
 
-(* simplify formulas and filter out unsatisfiable ones *)
+(* Simplify and deduplicate formulas *)
 let doEdge (prev_stmt : stmt) (next_stmt : stmt) (state : t) : t =
   Async.yield ();
 
@@ -227,7 +233,7 @@ let doEdge (prev_stmt : stmt) (next_stmt : stmt) (state : t) : t =
   in
 
   let deduplicate_states : t -> t =
-    if Config.Edge_deduplication.get () then deduplicate_states else Fun.id
+    if Config.Edge_deduplication.get () then deduplicate_formulas else Fun.id
   in
 
   let open Simplification in
@@ -258,9 +264,9 @@ module StmtStartData = struct
 
   let clear () = Hashtbl.clear !Func_call.function_context.results
 
-  (* we cannot just assign `let mem = Hashtbl.mem !results`,
-     that would evaluate `!results` immediately, but we need it to be evaluated each time
-     (inside function calls, `results` refers to a different hashtable *)
+  (* we cannot just assign `let mem = Hashtbl.mem !results`, that would
+      evaluate `!results` immediately, but we need it to be evaluated each time
+      (inside function calls, `results` refers to a different hashtable *)
   let mem stmt = Hashtbl.mem !Func_call.function_context.results stmt
   let find stmt = Hashtbl.find !Func_call.function_context.results stmt
   let replace stmt = Hashtbl.replace !Func_call.function_context.results stmt
@@ -280,12 +286,12 @@ module Tests = struct
   let%test "join_1" =
     let input = [ [ PointsTo (x, LS_t y') ]; [ PointsTo (x, LS_t z') ] ] in
     let expected = [ [ PointsTo (x, LS_t y') ] ] in
-    let joined = deduplicate_states input in
+    let joined = deduplicate_formulas input in
     assert_eq_state joined expected
 
   let%test "join_2" =
     let input = [ [ PointsTo (x, LS_t y) ]; [ PointsTo (x, LS_t z) ] ] in
-    let joined = deduplicate_states input in
+    let joined = deduplicate_formulas input in
     assert_eq_state joined input
 
   let%test "join_ls" =
@@ -293,57 +299,6 @@ module Tests = struct
     |> List.for_all (fun len ->
            let input = [ [ mk_ls x y' len ]; [ mk_ls x z' len ] ] in
            let expected = [ [ mk_ls x y' len ] ] in
-           let joined = deduplicate_states input in
+           let joined = deduplicate_formulas input in
            assert_eq_state joined expected)
-
-  (* let%test_unit "join_ls" = *)
-  (*   let old_state = [ SSL.mk_star [ SSL.mk_pto x y ] ] in *)
-  (*   let new_state = [ SSL.mk_star [ SSL.mk_ls x y; SSL.mk_distinct x y ] ] in *)
-  (*   let joined = deduplicate_states @@ old_state @ new_state in *)
-  (*   assert_eq_list (old_state @ new_state) joined; *)
-  (*   assert (changed joined old_state) *)
-  (**)
-  (* let%test_unit "entailment" = *)
-  (*   let old_state = SSL.mk_star [ SSL.mk_ls x y; SSL.mk_distinct x y ] in *)
-  (*   let new_state = SSL.mk_star [ SSL.mk_pto x' y'; SSL.mk_pto y' z' ] in *)
-  (*   assert (not @@ Astral_query.check_entailment old_state new_state) *)
-  (**)
-  (* let%test_unit "entailment" = *)
-  (*   let start = mk_var "start" in *)
-  (*   let temp = mk_var "temp" in *)
-  (*   let alloc0 = mk_var "alloc!0" in *)
-  (*   let alloc1 = mk_var "alloc!1" in *)
-  (*   let alloc3 = mk_var "alloc!3" in *)
-  (*   let nullptr = mk_var "nullptr" in *)
-  (**)
-  (*   let old_state = *)
-  (*     SSL.mk_star *)
-  (*       [ *)
-  (*         SSL.mk_eq nullptr nil; *)
-  (*         SSL.mk_pto temp alloc3; *)
-  (*         SSL.mk_eq x temp; *)
-  (*         SSL.mk_ls start temp; *)
-  (*         SSL.mk_distinct start temp; *)
-  (*       ] *)
-  (*   in *)
-  (*   let new_state = *)
-  (*     SSL.mk_or *)
-  (*       [ *)
-  (*         SSL.mk_star *)
-  (*           [ *)
-  (*             SSL.mk_eq start x; *)
-  (*             SSL.mk_pto x alloc0; *)
-  (*             SSL.mk_eq nullptr nil; *)
-  (*             SSL.mk_eq temp nil; *)
-  (*           ]; *)
-  (*         SSL.mk_star *)
-  (*           [ *)
-  (*             SSL.mk_pto start temp; *)
-  (*             SSL.mk_eq nullptr nil; *)
-  (*             SSL.mk_pto temp alloc1; *)
-  (*             SSL.mk_eq x temp; *)
-  (*           ]; *)
-  (*       ] *)
-  (*   in *)
-  (*   assert (not @@ Astral_query.check_entailment old_state new_state) *)
 end

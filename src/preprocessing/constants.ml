@@ -1,3 +1,5 @@
+(** This modules contains constants used by the rest of preprocessing *)
+
 let null_var_name = "_nil"
 let const_var_name = "_const"
 let nondet_var_name = "_nondet"

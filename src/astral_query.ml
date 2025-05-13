@@ -1,6 +1,9 @@
 open Astral
 open Common
 
+(** This module implements wrapper functions for Astral's sat and entailment
+    queries, with the caching of query results *)
+
 (** time spent in Astral *)
 let solver_time = ref 0.0
 
