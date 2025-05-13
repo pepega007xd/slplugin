@@ -51,7 +51,7 @@ clean:
 
 bp-archive: clean
 	mkdir bp-archive
-	cp -r bp src bench test_programs README.md dune-project Makefile bp-archive
+	cp -r bp src bench test_programs README.md LICENSE dune-project Makefile bp-archive
 	mv bp-archive/bp/thesis.pdf bp-archive
 	mkdir bp-archive/excel_at_fit
 	cp excel_poster/poster.pdf bp-archive/excel_at_fit/poster.pdf
