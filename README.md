@@ -49,7 +49,12 @@ To run with the recommended settings without constant propagation and loop unrol
 make run-direct <filename.c>
 ```
 
-To run the full benchmark suite and display the results, use:
+To run the full benchmark suite, you must first clone the repository with SV-COMP benchmarks into `../sv-benchmarks` relative to this repository:
+```bash
+git clone https://gitlab.com/sosy-lab/benchmarking/sv-benchmarks.git ../sv-benchmarks --depth 1 --branch svcomp25
+```
+
+Then, you can run the benchmarks and display the results:
 ```bash
 make benchmark
 make results
