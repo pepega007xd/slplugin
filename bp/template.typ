@@ -32,20 +32,23 @@
   // do not break lines in inline equations
   show math.equation.where(block: false): box
 
+  // show links as blue
+  show link: set text(rgb("#3366CC"))
+
   body
 }
 
 #let czech_text(content) = {
   set text(lang: "cz")
 
-  show " k ": [ s~]
+  show " k ": [ k~]
   show " s ": [ s~]
-  show " v ": [ s~]
-  show " z ": [ s~]
-  show " o ": [ s~]
-  show " u ": [ s~]
-  show " a ": [ s~]
-  show " i ": [ s~]
+  show " v ": [ v~]
+  show " z ": [ z~]
+  show " o ": [ o~]
+  show " u ": [ u~]
+  show " a ": [ a~]
+  show " i ": [ i~]
 
   content
 }
@@ -57,7 +60,7 @@
   raw(filepath),
 )
 
-#let plugin_link(filepath) = repo_link("https://github.com/pepega007xd/ktsn/tree/final_code/", filepath)
+#let plugin_link(filepath) = repo_link("https://github.com/pepega007xd/ktsn/tree/bp_version/", filepath)
 
 #let svcomp_link(filepath) = repo_link(
   "https://gitlab.com/sosy-lab/benchmarking/sv-benchmarks/-/tree/svcomp25/c/",
